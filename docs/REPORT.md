@@ -1,0 +1,113 @@
+# CADRIG: A Model- and Kernel-Agnostic Harness for CAD Agents
+
+## Alpha Implementation and Reproducible Evaluation on CADGen-Bench
+
+### Abstract
+
+CAD agents combine multimodal or textual reasoning with executable geometry
+programs and CAD kernels. Comparing only final geometry scores hides operational
+properties that determine whether an agent can be reproduced, inspected, and
+safely used. CADRIG is a model- and kernel-agnostic execution harness that
+separates model inference, geometry execution, validation, bounded repair,
+observability, and evaluation.
+
+CADRIG is not presented as a new state-of-the-art CAD-generation model. The
+alpha implementation uses CADGen-Bench as an external geometry-quality baseline
+and as an end-to-end validation of the execution pipeline. A separate harness
+evaluation measures portability, recovery behavior, trace completeness, latency,
+and cost. This separation allows the infrastructure contribution to be assessed
+independently of any one model's benchmark score.
+
+## 1. Positioning and research claim
+
+The primary claim is:
+
+> The same controlled CAD-agent pipeline can run with interchangeable models
+> and CAD kernels while preserving execution traces, validation, recovery, and
+> evaluation.
+
+The alpha currently integrates Gemini through a provider-neutral boundary,
+Build123d/OCP as the primary headless kernel path, and FreeCAD as the first
+interactive host. These implementations are initial adapters, not architectural
+requirements.
+
+## 2. Evaluation layers
+
+| Evaluation layer | Research question | Measures |
+| --- | --- | --- |
+| **External validation on CADGen-Bench** | Does the configured agent produce geometrically valid and accurate CAD? | Official CAD score, validity, generation/editing breakdown |
+| **Harness evaluation** | Does the controlled pipeline remain observable, recoverable, and portable? | Model/kernel substitution, retry and repair outcomes, trace coverage, validity gates, latency, tokens, explicit-rate cost |
+
+A modest CADGen-Bench score does not invalidate the harness contribution. It
+instead establishes the quality of the current model/kernel configuration and
+provides a reproducible baseline for later configurations.
+
+## 3. Alpha architecture
+
+CADRIG separates six responsibilities:
+
+1. A provider-neutral model boundary receives a bounded task context.
+2. A backend adapter exposes the selected CAD kernel and export contract.
+3. Generated code executes in an isolated attempt with time and token limits.
+4. Kernel-derived checks validate topology, watertightness, solids and bounds.
+5. Structured feedback supports bounded repair without hiding failed attempts.
+6. The evaluation layer stores immutable candidates, traces, hashes and reports.
+
+The FreeCAD workbench is a client of this engine rather than the benchmark job
+runner. This prevents GUI lifecycle and event-loop behavior from determining
+benchmark reproducibility.
+
+## 4. Reproducibility controls
+
+The alpha harness records the model identifier, kernel backend, reasoning
+setting, CADGen-Bench revision, limits, environment, attempt state, code hashes,
+token use, timing, validation output and candidate SHA-256. Cohort execution
+uses isolated fixture attempts, durable reservations, exclusive locking,
+configuration fingerprints, strict sanity checks and immutable publication.
+
+Unknown or interrupted usage is charged conservatively rather than treated as
+zero. Submission archives are created atomically and checked for CRC, exact
+layout, verified hashes and explicit publication consent.
+
+## 5. Current evidence
+
+The alpha has completed one CADGen-Bench generation fixture and one editing
+fixture with valid, watertight STEP outputs. These public candidate-only runs do
+not have access to private ground-truth metrics and therefore are not reported
+as scored results. An offline cohort smoke test exercises subprocess execution,
+Build123d export, validation, accounting, immutable publication and idempotent
+resume. The automated suite currently contains 69 passing tests.
+
+These results demonstrate pipeline viability, not statistical benchmark quality
+or state-of-the-art performance.
+
+## 6. Planned evaluation
+
+The next evaluation sequence is:
+
+1. Run a small, representative calibration cohort spanning generation and
+   editing tasks under a declared admission budget.
+2. Report validity, failure taxonomy, repair success, trace completeness,
+   latency and token/cost distributions.
+3. Repeat paired tasks across at least two model configurations.
+4. Repeat a representative subset across at least two kernel backends.
+5. Freeze the configuration and execute all 81 public CADGen-Bench inputs.
+6. Strictly validate, package and submit the first official external score.
+
+## 7. Limitations
+
+- Only two real public fixtures have been executed so far.
+- No official leaderboard score has been obtained.
+- The FreeCAD experience remains an alpha adapter rather than a mature product.
+- Provider-side billing may include failed or retried requests that are not
+  represented by successful response usage.
+- Model and kernel portability are architectural and test-supported claims;
+  comparative empirical results are still pending.
+
+## 8. Release naming
+
+- **Project:** CADRIG
+- **Repository:** `cadrig`
+- **Release:** CADRIG Alpha
+- **Report:** *CADRIG: A Model- and Kernel-Agnostic Harness for CAD Agents*
+- **Benchmark section:** External Validation on CADGen-Bench

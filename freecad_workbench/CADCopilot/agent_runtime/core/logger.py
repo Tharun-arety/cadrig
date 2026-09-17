@@ -1,0 +1,84 @@
+"""Centralized logging for the CADRIG FreeCAD workbench.
+
+Writes to:
+  1. FreeCAD.Console (when available)
+  2. Log file inside the installed CADRIG runtime.
+"""
+from __future__ import annotations
+
+import datetime
+import logging
+import os
+import sys
+import tempfile
+
+
+def _get_log_dir() -> str:
+    """Use the installed runtime log directory."""
+    # Get the core module directory (core/logger.py)
+    base = os.path.dirname(os.path.abspath(__file__))
+    # Go up to the agent runtime root.
+    base = os.path.dirname(base)
+    d = os.path.join(base, "log")
+    os.makedirs(d, exist_ok=True)
+    return d
+
+
+def _setup_file_logger() -> logging.Logger:
+    logger = logging.getLogger("open_cad_copilot")
+    logger.setLevel(logging.DEBUG)
+    if logger.handlers:
+        return logger
+    log_path = os.path.join(_get_log_dir(), "open_cad_copilot.log")
+    fh = logging.FileHandler(log_path, encoding="utf-8")
+    fh.setLevel(logging.DEBUG)
+    fh.setFormatter(logging.Formatter(
+        "%(asctime)s [%(levelname)s] %(message)s", datefmt="%Y-%m-%d %H:%M:%S"
+    ))
+    logger.addHandler(fh)
+    return logger
+
+
+_file_logger = _setup_file_logger()
+
+
+def _log(msg: str, level: str = "warning", *, quiet: bool = False) -> None:
+    ts = datetime.datetime.now().strftime("%H:%M:%S")
+    full = f"[{ts}] {msg}"
+    # Console — info and error levels; warning skips to avoid FreeCAD Report popup spam
+    if not quiet and level in ("info", "error"):
+        try:
+            import FreeCAD
+            if level == "error":
+                FreeCAD.Console.PrintError(f"[CADRIG] {full}\n")
+            else:
+                FreeCAD.Console.PrintMessage(f"[CADRIG] {full}\n")
+        except (ImportError, AttributeError):
+            prefix = {"error": "ERROR", "info": "INFO"}.get(level, "LOG")
+            print(f"[CADRIG] {prefix}: {full}", file=sys.stderr)
+    # File
+    log_level = {"error": logging.ERROR, "warning": logging.WARNING, "info": logging.INFO}.get(level, logging.INFO)
+    _file_logger.log(log_level, msg)
+
+
+def log_info(msg: str) -> None:
+    _log(msg, "info")
+
+
+def log_warning(msg: str) -> None:
+    _log(msg, "warning")
+
+
+def log_error(msg: str) -> None:
+    _log(msg, "error")
+
+
+def log_quiet(msg: str) -> None:
+    """Log to file only — no FreeCAD Console output.
+
+    Use this for expected Agent behavior (tool failures, auto-fix retries)
+    to avoid triggering FreeCAD's Report view popup. The information is
+    already shown inline in the chat panel via _append_tool_msg().
+    """
+    log_level = logging.INFO
+    _file_logger.log(log_level, msg)

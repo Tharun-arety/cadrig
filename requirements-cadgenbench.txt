@@ -1,0 +1,2 @@
+-e .[dev]
+cadgenbench[baseline] @ git+https://github.com/huggingface/cadgenbench.git@33304cf771fc5639144b1df9611e347251052cf8

@@ -1,0 +1,32 @@
+{
+  "schema_version": "1.0.0",
+  "plan_id": "demo-create-part",
+  "document_id": "demo-part",
+  "base_revision": 0,
+  "actions": [
+    {
+      "action_id": "create-document",
+      "kind": "create_document",
+      "parameters": {}
+    },
+    {
+      "action_id": "add-body",
+      "kind": "add_box",
+      "parameters": {
+        "feature_id": "main-body",
+        "width": 80,
+        "depth": 45,
+        "height": 12
+      }
+    },
+    {
+      "action_id": "add-boss",
+      "kind": "add_cylinder",
+      "parameters": {
+        "feature_id": "mounting-boss",
+        "radius": 10,
+        "height": 20
+      }
+    }
+  ]
+}

@@ -1,0 +1,17 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.venv/
+dist/
+build/
+*.egg-info/
+.env
+.env.*
+results/
+docs/ENGINEERING_JOURNAL.md
+.codex/
+.agents/
+*.log
+*.FCBak
+*-smoke-result.json
