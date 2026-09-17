@@ -47,6 +47,8 @@ must report unsupported tasks truthfully.
 - [x] Resumable fixture scheduling with conservative cross-run token/cost admission.
 - [x] First-class harness evaluation for portability, recovery, observability,
   latency, tokens and explicit-rate cost without a composite score.
+- [x] Resumable paired model-by-kernel calibration matrices with isolated cell
+  budgets, fingerprints, locking and automatic harness evaluation.
 - [ ] Complete 81-sample baseline run and first official score.
 
 ## R1 — Useful FreeCAD copilot

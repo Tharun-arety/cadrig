@@ -189,6 +189,27 @@ bound. Provider-side billing can still differ when a provider charges failed or
 retried requests, so production accounts should also have a provider spending
 limit.
 
+For paired harness experiments, run the identical fixtures through an explicit
+model × kernel matrix. Every cell is an independently resumable cohort, and the
+matrix automatically writes `harness-evaluation.json`:
+
+```powershell
+.\.venv\Scripts\cadrig.exe benchmark cadgenbench matrix 101 201 `
+  --matrix-dir results/cadgenbench/calibration-matrix-01 `
+  --model provider/model-a --model provider/model-b `
+  --backend build123d --backend cadquery `
+  --token-budget-per-cell 160000 --max-tokens-per-task 80000 `
+  --max-tokens-per-call 32768 --max-iter 4 --reasoning-effort medium
+```
+
+The per-cell token budget must reserve every selected fixture, preventing a
+nominal matrix from silently becoming unpaired. Maximum admitted token exposure
+is `models × kernels × token-budget-per-cell`. Optional cost enforcement uses a
+JSON `--pricing-file` keyed by exact model identifier; each entry contains
+`input_usd_per_million`, `output_usd_per_million`, and
+`cost_budget_usd_per_cell`. CADRIG refuses partial pricing coverage rather than
+applying one model's rates to another.
+
 The commands print the created run directory and record `manifest.json`. With
 the public dataset already cached, strict verification discovers its official
 sanity checker automatically. Future runs also record `trace.json` per fixture

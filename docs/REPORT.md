@@ -76,7 +76,7 @@ fixture with valid, watertight STEP outputs. These public candidate-only runs do
 not have access to private ground-truth metrics and therefore are not reported
 as scored results. An offline cohort smoke test exercises subprocess execution,
 Build123d export, validation, accounting, immutable publication and idempotent
-resume. The automated suite currently contains 74 passing tests.
+resume. The automated suite currently contains 80 passing tests.
 
 These results demonstrate pipeline viability, not statistical benchmark quality
 or state-of-the-art performance.
@@ -111,6 +111,14 @@ agent-completion flag. This is execution-path evidence only: the fake offline
 model and single Build123d configuration do not demonstrate model or kernel
 portability.
 
+Paired experiments are orchestrated as a model-by-kernel matrix. Each cell uses
+the same fixture set but retains an independent cohort state, token/cost
+admission boundary, configuration fingerprint and lock. The matrix refuses a
+per-cell token or cost budget that cannot reserve the full fixture set. Model
+pricing is explicit per identifier, because applying one flat rate across
+different providers would make cost comparisons unreliable. Matrix completion
+automatically regenerates the combined harness evaluation.
+
 ## 7. Planned evaluation
 
 The next evaluation sequence is:
@@ -119,8 +127,8 @@ The next evaluation sequence is:
    editing tasks under a declared admission budget.
 2. Report validity, failure taxonomy, repair success, trace completeness,
    latency and token/cost distributions.
-3. Repeat paired tasks across at least two model configurations.
-4. Repeat a representative subset across at least two kernel backends.
+3. Use the paired matrix runner across at least two model configurations.
+4. Repeat the same representative tasks across at least two kernel backends.
 5. Freeze the configuration and execute all 81 public CADGen-Bench inputs.
 6. Strictly validate, package and submit the first official external score.
 

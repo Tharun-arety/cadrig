@@ -142,6 +142,38 @@ def build_parser() -> argparse.ArgumentParser:
         "--data-repo", default="HuggingAI4Engineering/cadgenbench-data"
     )
 
+    benchmark_matrix = cadgenbench_commands.add_parser(
+        "matrix", help="run paired fixture cohorts across models and CAD kernels"
+    )
+    benchmark_matrix.add_argument("fixtures", nargs="*")
+    benchmark_matrix.add_argument("--all", action="store_true", dest="run_all")
+    benchmark_matrix.add_argument("--matrix-dir", type=Path, required=True)
+    benchmark_matrix.add_argument("--dataset-dir", type=Path)
+    benchmark_matrix.add_argument("--sanity-script", type=Path)
+    benchmark_matrix.add_argument("--model", dest="models", action="append", required=True)
+    benchmark_matrix.add_argument(
+        "--backend",
+        dest="backends",
+        action="append",
+        choices=("build123d", "cadquery"),
+    )
+    benchmark_matrix.add_argument("--token-budget-per-cell", type=int, required=True)
+    benchmark_matrix.add_argument("--max-tokens-per-task", type=int, required=True)
+    benchmark_matrix.add_argument("--max-tokens-per-call", type=int)
+    benchmark_matrix.add_argument("--max-iter", type=int)
+    benchmark_matrix.add_argument("--max-duration", type=float)
+    benchmark_matrix.add_argument(
+        "--reasoning-effort", choices=("minimal", "low", "medium", "high")
+    )
+    benchmark_matrix.add_argument(
+        "--pricing-file",
+        type=Path,
+        help="JSON rates and per-cell cost limit for every selected model",
+    )
+    benchmark_matrix.add_argument(
+        "--data-repo", default="HuggingAI4Engineering/cadgenbench-data"
+    )
+
     benchmark_verify = cadgenbench_commands.add_parser(
         "verify", help="check run completeness and STEP validity"
     )
@@ -180,11 +212,14 @@ def build_parser() -> argparse.ArgumentParser:
 def _run_cadgenbench_command(args: argparse.Namespace) -> int:
     from cadcopilot.benchmarks.cadgenbench import (
         CadgenbenchCohortConfig,
+        CadgenbenchMatrixConfig,
         CadgenbenchRunConfig,
         evaluate_harness,
+        load_model_pricing,
         package_run,
         report_runs,
         run_cohort,
+        run_matrix,
         run_official_baseline,
         verify_run,
     )
@@ -252,6 +287,59 @@ def _run_cadgenbench_command(args: argparse.Namespace) -> int:
                         "pending": result.pending,
                         "total_tokens": result.total_tokens,
                         "cost_usd": result.cost_usd,
+                    },
+                    indent=2,
+                )
+            )
+            return 0 if result.status == "completed" else 1
+
+        if args.benchmark_command == "matrix":
+            from cadcopilot.benchmarks.cadgenbench.dataset import discover_dataset_tasks
+
+            if args.run_all == bool(args.fixtures):
+                raise ValueError("select either fixtures or --all")
+            fixtures = tuple(args.fixtures)
+            if args.run_all:
+                if args.dataset_dir is None:
+                    raise ValueError("--all requires --dataset-dir for authoritative task discovery")
+                fixtures = discover_dataset_tasks(args.dataset_dir)
+                if not fixtures:
+                    raise ValueError(f"no CADGenBench tasks found under {args.dataset_dir}")
+            result = run_matrix(
+                CadgenbenchMatrixConfig(
+                    matrix_dir=args.matrix_dir,
+                    fixtures=fixtures,
+                    models=tuple(args.models),
+                    backends=tuple(args.backends or ("build123d",)),
+                    token_budget_per_cell=args.token_budget_per_cell,
+                    max_tokens_per_task=args.max_tokens_per_task,
+                    max_iterations=args.max_iter,
+                    max_tokens_per_call=args.max_tokens_per_call,
+                    max_duration=args.max_duration,
+                    reasoning_effort=args.reasoning_effort,
+                    pricing=load_model_pricing(args.pricing_file)
+                    if args.pricing_file is not None
+                    else (),
+                    dataset_dir=args.dataset_dir,
+                    sanity_script=args.sanity_script,
+                    data_repo=args.data_repo,
+                ),
+                cwd=Path.cwd(),
+            )
+            print(
+                json.dumps(
+                    {
+                        "status": result.status,
+                        "matrix_dir": str(result.matrix_dir),
+                        "cells": result.cell_count,
+                        "completed_cells": result.completed_cells,
+                        "incomplete_cells": result.incomplete_cells,
+                        "total_tokens": result.total_tokens,
+                        "debited_tokens": result.debited_tokens,
+                        "cost_usd": result.cost_usd,
+                        "harness_evaluation": str(result.harness_evaluation)
+                        if result.harness_evaluation is not None
+                        else None,
                     },
                     indent=2,
                 )

@@ -309,6 +309,13 @@ run coordinator process
   execution and rendering to prevent oversubscription.
 - Every event carries `run_id`, `task_id`, `candidate_id` and monotonic sequence.
 
+Comparative calibration adds a matrix coordinator above the cohort scheduler.
+It executes deterministic model-by-kernel cells sequentially, with the same
+fixture set in every cell. Each cell keeps its own resumable state and full-set
+admission budget; `matrix.json` stores the immutable experiment fingerprint and
+aggregate ledger. A separate matrix lock prevents concurrent coordinators while
+the existing cohort locks continue to protect individual cells.
+
 For the FreeCAD product, the panel submits a job and listens to events. Only the
 small final native-document transaction is marshalled onto FreeCAD's main
 thread. Long-running inference, rendering and candidate search never block Qt.
@@ -375,6 +382,9 @@ src/cadcopilot/
   benchmarks/cadgenbench/
     dataset.py
     runner.py
+    scheduler.py
+    matrix.py
+    harness_eval.py
     sanity.py
     package.py
     reports.py
@@ -415,6 +425,21 @@ results/<run_id>/
         output.step
     selected.json
     output.step
+```
+
+A comparative experiment uses this enclosing structure:
+
+```text
+results/<matrix_id>/
+  matrix.json
+  harness-evaluation.json
+  cells/
+    <model-kernel-cell>/
+      cohort.json
+      manifest.json
+      <task_id>/
+        output.step
+        trace.json
 ```
 
 The submission packager copies only the required `output.step` files and root

@@ -6,6 +6,8 @@ import hashlib
 import json
 import os
 import re
+from contextlib import contextmanager
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -27,6 +29,69 @@ def write_json_atomic(path: Path, payload: dict[str, Any]) -> None:
     temporary = path.with_name(f".{path.name}.{os.getpid()}.tmp")
     temporary.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     temporary.replace(path)
+
+
+def _pid_is_alive(pid: int) -> bool:
+    if pid <= 0:
+        return False
+    if os.name == "nt":
+        import ctypes
+        from ctypes import wintypes
+
+        process_query_limited_information = 0x1000
+        kernel32 = ctypes.windll.kernel32
+        open_process = kernel32.OpenProcess
+        open_process.argtypes = (wintypes.DWORD, wintypes.BOOL, wintypes.DWORD)
+        open_process.restype = wintypes.HANDLE
+        close_handle = kernel32.CloseHandle
+        close_handle.argtypes = (wintypes.HANDLE,)
+        close_handle.restype = wintypes.BOOL
+        handle = open_process(process_query_limited_information, False, pid)
+        if not handle:
+            return False
+        close_handle(handle)
+        return True
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
+@contextmanager
+def exclusive_process_lock(target_dir: Path, label: str):
+    """Acquire a crash-recoverable same-host lock beside a target directory."""
+
+    target_dir = target_dir.resolve()
+    target_dir.parent.mkdir(parents=True, exist_ok=True)
+    lock_path = target_dir.parent / f".{target_dir.name}.{label}.lock"
+    try:
+        descriptor = os.open(lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+    except FileExistsError as exc:
+        lock = read_json(lock_path)
+        pid = lock.get("pid") if lock is not None else None
+        if not isinstance(pid, int) or _pid_is_alive(pid):
+            raise RuntimeError(f"{label} is already locked: {lock_path}") from exc
+        lock_path.unlink()
+        try:
+            descriptor = os.open(lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        except FileExistsError as retry_exc:
+            raise RuntimeError(f"{label} lock was acquired concurrently: {lock_path}") from retry_exc
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
+            stream.write(
+                json.dumps(
+                    {
+                        "pid": os.getpid(),
+                        "created_at": datetime.now(timezone.utc).isoformat(),
+                    }
+                )
+            )
+        yield
+    finally:
+        lock_path.unlink(missing_ok=True)
 
 
 def validate_task_id(task_id: str) -> str:

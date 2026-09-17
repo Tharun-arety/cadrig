@@ -4,18 +4,23 @@ from __future__ import annotations
 
 import hashlib
 import json
-import os
 import shutil
 import time
 import uuid
-from contextlib import contextmanager
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
-from .common import candidate_for, read_json, sha256_file, validate_task_id, write_json_atomic
+from .common import (
+    candidate_for,
+    exclusive_process_lock,
+    read_json,
+    sha256_file,
+    validate_task_id,
+    write_json_atomic,
+)
 from .dataset import discover_dataset_tasks, find_sanity_script
 from .runner import DEFAULT_DATA_REPO, CadgenbenchRunConfig, run_official_baseline
 from .sanity import verify_run
@@ -367,64 +372,6 @@ def _write_cohort_metadata(config: CadgenbenchCohortConfig, state: dict[str, Any
     )
 
 
-@contextmanager
-def _cohort_lock(cohort_dir: Path):
-    cohort_dir = cohort_dir.resolve()
-    cohort_dir.parent.mkdir(parents=True, exist_ok=True)
-    lock_path = cohort_dir.parent / f".{cohort_dir.name}.cohort.lock"
-    try:
-        descriptor = os.open(lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-    except FileExistsError as exc:
-        lock = read_json(lock_path)
-        pid = lock.get("pid") if lock is not None else None
-        if not isinstance(pid, int) or _pid_is_alive(pid):
-            raise RuntimeError(
-                f"cohort is already locked by another scheduler: {lock_path}"
-            ) from exc
-        lock_path.unlink()
-        try:
-            descriptor = os.open(lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-        except FileExistsError as retry_exc:
-            raise RuntimeError(
-                f"cohort lock was acquired concurrently: {lock_path}"
-            ) from retry_exc
-    try:
-        with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
-            stream.write(json.dumps({"pid": os.getpid(), "created_at": _now()}))
-        yield
-    finally:
-        lock_path.unlink(missing_ok=True)
-
-
-def _pid_is_alive(pid: int) -> bool:
-    if pid <= 0:
-        return False
-    if os.name == "nt":
-        import ctypes
-        from ctypes import wintypes
-
-        process_query_limited_information = 0x1000
-        kernel32 = ctypes.windll.kernel32
-        open_process = kernel32.OpenProcess
-        open_process.argtypes = (wintypes.DWORD, wintypes.BOOL, wintypes.DWORD)
-        open_process.restype = wintypes.HANDLE
-        close_handle = kernel32.CloseHandle
-        close_handle.argtypes = (wintypes.HANDLE,)
-        close_handle.restype = wintypes.BOOL
-        handle = open_process(process_query_limited_information, False, pid)
-        if not handle:
-            return False
-        close_handle(handle)
-        return True
-    try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        return False
-    except PermissionError:
-        return True
-    return True
-
-
 def _run_cohort_locked(
     config: CadgenbenchCohortConfig,
     *,
@@ -585,5 +532,5 @@ def run_cohort(
     cwd: Path | None = None,
 ) -> CohortResult:
     """Run or resume a cohort under an exclusive cross-process lock."""
-    with _cohort_lock(config.cohort_dir):
+    with exclusive_process_lock(config.cohort_dir, "cohort"):
         return _run_cohort_locked(config, command_prefix=command_prefix, cwd=cwd)
