@@ -148,6 +148,18 @@ successful repair. Trace, verification and candidate-hash coverage remained
 complete. The campaign therefore has 36 unique strict-valid public fixtures;
 semantic benchmark quality remains unknown until official scoring.
 
+The fifth six-task cohort encountered an infrastructure-only interruption on
+fixture 131 when its first process lacked outbound provider access. The
+scheduler fail-closed: it marked the zero-usage attempt abandoned and retained
+the full 80,000-token/$0.96 reservation rather than assuming it was free. A
+separate bounded retry completed fixture 131. Across the original and repair
+cohorts, all six unique tasks are strict-valid after seven attempts, 211,893
+provider-accounted tokens and $0.577086. Combined evaluation records one
+retried task, two within-trace repair opportunities, two successful repairs,
+and the abandoned attempt as `abandoned` plus `missing_trace`. The composed
+six-candidate set passed both strict verification stages. The campaign now has
+42 unique strict-valid public fixtures.
+
 These results demonstrate pipeline viability, not statistical benchmark quality
 or state-of-the-art performance.
 
@@ -193,7 +205,7 @@ automatically regenerates the combined harness evaluation.
 
 The next evaluation sequence is:
 
-1. Continue admitting the remaining 45 unattempted public fixtures through immutable plan
+1. Continue admitting the remaining 39 unattempted public fixtures through immutable plan
    `production-batches-002`, one five- or six-task cohort at a time, using the
    low-reasoning, 16k-per-call policy and strict completion gate.
 2. After every cohort, preserve strict-valid outputs, classify failures, add
@@ -208,7 +220,7 @@ The next evaluation sequence is:
 
 ## 8. Limitations
 
-- Only 36 unique real public fixtures have been executed, although all 36 now
+- Only 42 unique real public fixtures have been executed, although all 42 now
   have strict-valid candidates.
 - The simple/moderate/complex batch labels are deterministic public-input
   heuristics, not validated predictors of private benchmark difficulty.
