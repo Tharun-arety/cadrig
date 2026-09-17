@@ -72,7 +72,13 @@ def test_cohort_runs_isolated_tasks_and_accounts_actual_trace(
     assert result.total_tokens == 400
     assert result.cost_usd == pytest.approx(0.0028)
     assert len(calls) == 2
-    assert all(call["environ"] == {"CADCOPILOT_ATTEMPT_TOKEN_CAP": "500"} for call in calls)
+    assert all(call["environ"]["CADCOPILOT_ATTEMPT_TOKEN_CAP"] == "500" for call in calls)
+    assert all(
+        str(call["environ"]["CADCOPILOT_PROVIDER_USAGE_PATH"]).endswith(
+            "provider_usage.json"
+        )
+        for call in calls
+    )
     assert (tmp_path / "cohort" / "101" / "debug.txt").read_text() == "debug"
     state = json.loads((tmp_path / "cohort" / "cohort.json").read_text())
     assert state["usage"]["prompt_tokens"] == 150
@@ -164,6 +170,29 @@ def test_missing_trace_keeps_full_reservation(
     assert state["usage"]["total_tokens"] == 0
     assert state["budget_accounting"]["debited_tokens"] == 400
     assert state["budget_accounting"]["unverified_reserved_tokens"] == 400
+
+
+def test_provider_ledger_settles_usage_without_a_trace(tmp_path: Path) -> None:
+    ledger = tmp_path / "provider_usage.json"
+    ledger.write_text(
+        json.dumps(
+            {
+                "prompt_tokens": 50,
+                "completion_tokens": 55,
+                "unclassified_tokens": 0,
+                "total_tokens": 105,
+                "rejected_call_count": 1,
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    usage = scheduler._trace_usage(None, "101", ledger)
+
+    assert usage["trace_found"] is False
+    assert usage["provider_usage_found"] is True
+    assert usage["provider_rejected_call_count"] == 1
+    assert usage["total_tokens"] == 105
 
 
 def test_invalid_cost_configuration_is_rejected(tmp_path: Path) -> None:

@@ -12,7 +12,7 @@ from cadgenbench.baseline.llm import LLMClient
 from cadgenbench.baseline.types import AgentResult
 from cadgenbench.cli import main
 
-from .common import write_json_atomic
+from .common import read_json, write_json_atomic
 from .compat import completion_token_allowance, extract_code_blocks_tolerant
 
 _strict_extract_code_blocks = agent.extract_code_blocks
@@ -20,6 +20,7 @@ _strict_agent_result_save = AgentResult.save
 _strict_llm_complete = LLMClient.complete
 _recovered_code_hashes: set[str] = set()
 _TOKEN_CAP_ENV = "CADCOPILOT_ATTEMPT_TOKEN_CAP"
+_USAGE_LEDGER_ENV = "CADCOPILOT_PROVIDER_USAGE_PATH"
 
 
 def _sha256_text(value: str) -> str:
@@ -78,6 +79,55 @@ def _save_with_trace(self: AgentResult, output_dir: str | Path) -> Path:
     return destination
 
 
+def _usage_value(completion: Any, name: str) -> int:
+    value = getattr(completion, name, 0)
+    return value if isinstance(value, int) and not isinstance(value, bool) and value >= 0 else 0
+
+
+def _record_provider_usage(completion: Any, *, accepted: bool) -> None:
+    raw_path = os.environ.get(_USAGE_LEDGER_ENV)
+    if raw_path is None:
+        return
+    path = Path(raw_path).resolve()
+    payload = read_json(path) or {"schema_version": "1.0.0", "calls": []}
+    calls = payload.get("calls")
+    if not isinstance(calls, list):
+        calls = []
+    total = _usage_value(completion, "total_tokens")
+    prompt = _usage_value(completion, "prompt_tokens")
+    completion_tokens = _usage_value(completion, "completion_tokens")
+    calls.append(
+        {
+            "prompt_tokens": prompt,
+            "completion_tokens": completion_tokens,
+            "unclassified_tokens": max(total - prompt - completion_tokens, 0),
+            "total_tokens": total,
+            "accepted_by_attempt_cap": accepted,
+        }
+    )
+    payload["calls"] = calls
+    payload["prompt_tokens"] = sum(_usage_value_from_call(call, "prompt_tokens") for call in calls)
+    payload["completion_tokens"] = sum(
+        _usage_value_from_call(call, "completion_tokens") for call in calls
+    )
+    payload["unclassified_tokens"] = sum(
+        _usage_value_from_call(call, "unclassified_tokens") for call in calls
+    )
+    payload["total_tokens"] = sum(_usage_value_from_call(call, "total_tokens") for call in calls)
+    payload["call_count"] = len(calls)
+    payload["rejected_call_count"] = sum(
+        isinstance(call, dict) and call.get("accepted_by_attempt_cap") is False for call in calls
+    )
+    write_json_atomic(path, payload)
+
+
+def _usage_value_from_call(call: object, name: str) -> int:
+    if not isinstance(call, dict):
+        return 0
+    value = call.get(name)
+    return value if isinstance(value, int) and not isinstance(value, bool) and value >= 0 else 0
+
+
 def _complete_with_cap(
     self: LLMClient, messages: list[dict[str, Any]], **kwargs: Any
 ) -> Any:
@@ -106,6 +156,7 @@ def _complete_with_cap(
     completion = _strict_llm_complete(self, messages, **kwargs)
     new_total = consumed + completion.total_tokens
     self._cadcopilot_consumed_tokens = new_total
+    _record_provider_usage(completion, accepted=new_total <= token_cap)
     if new_total > token_cap:
         raise RuntimeError(
             f"provider-reported usage exceeded attempt token cap ({new_total} > {token_cap})"

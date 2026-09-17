@@ -4,9 +4,11 @@ import json
 import sys
 import zipfile
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
+from cadcopilot.benchmarks.cadgenbench import official_cli
 from cadcopilot.benchmarks.cadgenbench.compat import (
     completion_token_allowance,
     extract_code_blocks_tolerant,
@@ -66,6 +68,43 @@ def test_completion_token_allowance_reserves_prompt_before_call() -> None:
         prompt_tokens=1_000,
         requested=2_000,
     ) == 0
+
+
+def test_provider_usage_ledger_persists_rejected_over_cap_call(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    ledger = tmp_path / "provider_usage.json"
+    monkeypatch.setenv("CADCOPILOT_PROVIDER_USAGE_PATH", str(ledger))
+    monkeypatch.setenv("CADCOPILOT_ATTEMPT_TOKEN_CAP", "100")
+    client = SimpleNamespace(
+        _cadcopilot_consumed_tokens=80,
+        count_tokens=lambda _messages: 5,
+    )
+
+    def complete(_client: object, _messages: object, **kwargs: object) -> object:
+        assert kwargs["max_tokens"] == 15
+        return SimpleNamespace(prompt_tokens=5, completion_tokens=16, total_tokens=21)
+
+    monkeypatch.setattr(official_cli, "_strict_llm_complete", complete)
+
+    with pytest.raises(RuntimeError, match="101 > 100"):
+        official_cli._complete_with_cap(client, [], max_tokens=20)
+
+    payload = json.loads(ledger.read_text(encoding="utf-8"))
+    assert payload["total_tokens"] == 21
+    assert payload["prompt_tokens"] == 5
+    assert payload["completion_tokens"] == 16
+    assert payload["call_count"] == 1
+    assert payload["rejected_call_count"] == 1
+    assert payload["calls"] == [
+        {
+            "accepted_by_attempt_cap": False,
+            "completion_tokens": 16,
+            "prompt_tokens": 5,
+            "total_tokens": 21,
+            "unclassified_tokens": 0,
+        }
+    ]
 
 
 @pytest.mark.parametrize(

@@ -113,8 +113,24 @@ class CohortResult:
     cost_usd: float | None
 
 
-def _trace_usage(run_dir: Path, task_id: str) -> dict[str, Any]:
-    trace = read_json(run_dir / task_id / "trace.json") or {}
+def _trace_usage(
+    run_dir: Path | None, task_id: str, provider_usage_path: Path | None = None
+) -> dict[str, Any]:
+    trace = read_json(run_dir / task_id / "trace.json") if run_dir is not None else None
+    trace = trace or {}
+    provider_usage = (
+        read_json(provider_usage_path) if provider_usage_path is not None else None
+    )
+    if provider_usage:
+        return {
+            "trace_found": bool(trace),
+            "provider_usage_found": True,
+            "provider_rejected_call_count": provider_usage.get("rejected_call_count", 0),
+            "prompt_tokens": provider_usage.get("prompt_tokens", 0),
+            "completion_tokens": provider_usage.get("completion_tokens", 0),
+            "unclassified_tokens": provider_usage.get("unclassified_tokens", 0),
+            "total_tokens": provider_usage.get("total_tokens", 0),
+        }
     turns = trace.get("turns") if isinstance(trace.get("turns"), list) else []
     prompt = sum(
         item.get("prompt_tokens", 0)
@@ -130,6 +146,8 @@ def _trace_usage(run_dir: Path, task_id: str) -> dict[str, Any]:
     total = max(prompt + completion, reported if isinstance(reported, int) else 0)
     return {
         "trace_found": bool(trace),
+        "provider_usage_found": False,
+        "provider_rejected_call_count": 0,
         "prompt_tokens": max(prompt, 0),
         "completion_tokens": max(completion, 0),
         "unclassified_tokens": max(total - prompt - completion, 0),
@@ -326,7 +344,9 @@ def _reconcile_abandoned_attempts(
             run_dir = _attempt_run_dir(attempt_root)
             if run_dir is not None:
                 attempt["run_dir"] = str(run_dir.relative_to(config.cohort_dir))
-                attempt["usage"] = _trace_usage(run_dir, task_id)
+            attempt["usage"] = _trace_usage(
+                run_dir, task_id, attempt_root / "provider_usage.json"
+            )
             attempt["status"] = "abandoned"
             attempt["error"] = "previous scheduler process ended before attempt reconciliation"
             attempt["finished_at"] = _now()
@@ -411,8 +431,13 @@ def _run_cohort_locked(
             "reserved_cost_usd": _cost_reservation(config),
             "budget_debit_tokens": config.max_tokens_per_task,
             "budget_debit_cost_usd": _cost_reservation(config),
+            "provider_usage_path": str(
+                (attempt_root / "provider_usage.json").relative_to(config.cohort_dir)
+            ),
             "usage": {
                 "trace_found": False,
+                "provider_usage_found": False,
+                "provider_rejected_call_count": 0,
                 "prompt_tokens": 0,
                 "completion_tokens": 0,
                 "unclassified_tokens": 0,
@@ -444,6 +469,9 @@ def _run_cohort_locked(
                 command_prefix=command_prefix,
                 environ={
                     "CADCOPILOT_ATTEMPT_TOKEN_CAP": str(config.max_tokens_per_task),
+                    "CADCOPILOT_PROVIDER_USAGE_PATH": str(
+                        (attempt_root / "provider_usage.json").resolve()
+                    ),
                 },
                 cwd=cwd,
             )
@@ -453,8 +481,12 @@ def _run_cohort_locked(
 
         if run_dir is not None:
             attempt["run_dir"] = str(run_dir.relative_to(config.cohort_dir))
-            attempt["usage"] = _trace_usage(run_dir, task_id)
-        if attempt["usage"].get("trace_found"):
+        attempt["usage"] = _trace_usage(
+            run_dir, task_id, attempt_root / "provider_usage.json"
+        )
+        if attempt["usage"].get("trace_found") or attempt["usage"].get(
+            "provider_usage_found"
+        ):
             attempt["budget_debit_tokens"] = attempt["usage"]["total_tokens"]
             actual_cost = _usage_cost(attempt["usage"], config)
             attempt["budget_debit_cost_usd"] = (

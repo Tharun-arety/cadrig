@@ -45,6 +45,7 @@ must report unsupported tasks truthfully.
 - [x] Durable invocation logs, interruption manifests and post-run reconciliation.
 - [x] Hashed candidate verification and atomic self-validating submission ZIPs.
 - [x] Resumable fixture scheduling with conservative cross-run token/cost admission.
+- [x] Provider-usage sidecars that retain responses rejected by the task cap.
 - [x] First-class harness evaluation for portability, recovery, observability,
   latency, tokens and explicit-rate cost without a composite score.
 - [x] Resumable paired model-by-kernel calibration matrices with isolated cell

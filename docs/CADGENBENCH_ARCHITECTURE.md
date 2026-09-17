@@ -308,6 +308,9 @@ run coordinator process
 - Parallelism is configured independently for samples, model calls, candidate
   execution and rendering to prevent oversubscription.
 - Every event carries `run_id`, `task_id`, `candidate_id` and monotonic sequence.
+- Provider-reported usage is persisted atomically before the task-cap decision.
+  A response rejected for crossing the cap therefore remains chargeable and
+  auditable even when it is absent from the accepted agent-turn trace.
 
 Comparative calibration adds a matrix coordinator above the cohort scheduler.
 It executes deterministic model-by-kernel cells sequentially, with the same

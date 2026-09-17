@@ -66,17 +66,32 @@ uses isolated fixture attempts, durable reservations, exclusive locking,
 configuration fingerprints, strict sanity checks and immutable publication.
 
 Unknown or interrupted usage is charged conservatively rather than treated as
-zero. Submission archives are created atomically and checked for CRC, exact
-layout, verified hashes and explicit publication consent.
+zero. Provider usage is also written to an atomic sidecar immediately after
+each response and before the attempt-cap decision, so an over-cap response is
+not lost when the agent rejects that turn. Submission archives are created
+atomically and checked for CRC, exact layout, verified hashes and explicit
+publication consent.
 
 ## 5. Current evidence
 
-The alpha has completed one CADGen-Bench generation fixture and one editing
-fixture with valid, watertight STEP outputs. These public candidate-only runs do
-not have access to private ground-truth metrics and therefore are not reported
-as scored results. An offline cohort smoke test exercises subprocess execution,
-Build123d export, validation, accounting, immutable publication and idempotent
-resume. The automated suite currently contains 80 passing tests.
+The alpha has executed a real ten-task submission-readiness cohort spanning five
+generation and five editing fixtures. Seven candidates passed the strict public
+sanity gate: three of five generation tasks and four of five editing tasks. All
+ten attempts retained traces. The run recorded 31 agent turns, 26 code
+executions, an execution-success rate of 65.4%, and five successful repairs
+across six observed repair opportunities. The persisted traces contain 404,152
+tokens; a rejected over-cap call reported 7,593 additional tokens that the
+original trace format did not retain. The accounting path has since been fixed
+to persist such calls before acceptance or rejection.
+
+The cohort's 70% validity did not clear the declared 80% readiness gate, so the
+remaining production batch was not launched. The failures were two generation
+tasks that exhausted their allowances without a valid candidate and one editing
+task whose candidate failed mesh triangulation after the agent signalled done.
+These public candidate-only runs do not have access to private ground-truth
+metrics and therefore are not reported as scored results. Across all real runs,
+CADRIG has attempted 12 unique public fixtures and obtained strict-valid
+candidates for nine. The automated suite currently contains 82 passing tests.
 
 These results demonstrate pipeline viability, not statistical benchmark quality
 or state-of-the-art performance.
@@ -123,22 +138,27 @@ automatically regenerates the combined harness evaluation.
 
 The next evaluation sequence is:
 
-1. Run a small, representative calibration cohort spanning generation and
-   editing tasks under a declared admission budget.
-2. Report validity, failure taxonomy, repair success, trace completeness,
-   latency and token/cost distributions.
-3. Use the paired matrix runner across at least two model configurations.
-4. Repeat the same representative tasks across at least two kernel backends.
-5. Freeze the configuration and execute all 81 public CADGen-Bench inputs.
-6. Strictly validate, package and submit the first official external score.
+1. Add final-candidate validation feedback so mesh failures can enter a bounded
+   repair turn instead of failing only after agent completion.
+2. Rerun only the three failed readiness fixtures with a tighter per-call output
+   limit and a lower-reasoning generation policy.
+3. Require that repair cohort to pass three of three before admitting further
+   production batches.
+4. Freeze the validated configuration and execute all 81 public CADGen-Bench
+   inputs in resumable, budgeted batches.
+5. Strictly validate, package and submit the first official external score.
+6. Resume paired model and kernel portability experiments after the first score.
 
 ## 8. Limitations
 
-- Only two real public fixtures have been executed so far.
+- Only 12 unique real public fixtures have been executed; nine have strict-valid
+  candidates.
 - No official leaderboard score has been obtained.
 - The FreeCAD experience remains an alpha adapter rather than a mature product.
-- Provider-side billing may include failed or retried requests that are not
-  represented by successful response usage.
+- The readiness cohort's exact historical cost is a lower bound because one
+  rejected 7,593-token response predates the provider-usage sidecar fix.
+- Provider-side billing may still include transport failures or provider retries
+  that do not return a usage receipt to the harness.
 - Model and kernel portability are architectural and test-supported claims;
   comparative empirical results are still pending.
 
