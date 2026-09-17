@@ -30,6 +30,53 @@ _recovered_code_hashes: set[str] = set()
 _TOKEN_CAP_ENV = "CADCOPILOT_ATTEMPT_TOKEN_CAP"
 _USAGE_LEDGER_ENV = "CADCOPILOT_PROVIDER_USAGE_PATH"
 _validation_state = threading.local()
+_CANDIDATE_NAMES = ("output.step", "output.stp")
+
+_ARTIFACT_SAFETY_GUIDANCE = """
+
+Artifact safety contract:
+- Never write a dummy, placeholder, sentinel, or fallback primitive to
+  `output.step`. If an operation fails, raise the error and leave the candidate
+  absent or preserve the last successful candidate unchanged.
+- A candidate written by a failed process is rejected even when it happens to
+  be a valid watertight solid.
+- Do not repeat unchanged code merely to reach the iteration limit or satisfy
+  the completion protocol. Use each turn to inspect, diagnose, or improve the
+  geometry.
+"""
+
+_GENERATION_COMPLETENESS_GUIDANCE = """
+
+Generation semantic-completeness contract:
+- Before writing code, extract a checklist of the visible overall dimensions,
+  primary profile, holes/cutouts, bosses, bends/flanges, patterns, and major
+  fillets or chamfers. Implement every clearly discernible major feature.
+- A bounding box, single primitive, or intentionally simplified stand-in is
+  not an acceptable result when the drawing shows additional features. Never
+  stop because the part is complex; decompose it into additive and subtractive
+  operations and make measurable progress.
+- Before `[DONE]`, compare the render with the drawing and name any visible
+  feature still missing. Continue iterating while a major feature is missing.
+"""
+
+_EDITING_COMPLETENESS_GUIDANCE = """
+
+Editing semantic-completeness contract:
+- Treat the requested edit as local unless the instruction explicitly says
+  otherwise. Preserve unrelated bodies, interfaces, holes, topology, overall
+  scale, and placement.
+- Compare input and output bounding boxes, volume, and major feature counts.
+  A catastrophic scale or volume change is a failed edit, not a fallback.
+- Before `[DONE]`, verify that the named feature changed by the requested
+  amount and that unrelated geometry stayed invariant.
+- Spend at most two distinct execution turns on feature inspection. If exact
+  analytic topology is unavailable but plausible split/tessellated faces were
+  found, do not repeat the same search with looser predicates. Rank candidates
+  using the task's stated axis direction, relative size (such as smaller or
+  larger), position, face normal, and local dimensions; then execute the most
+  appropriate mesh fallback by turn three. Reserve later turns for validation,
+  rendering, and one corrective retry.
+"""
 
 _STEP_EDIT_GUIDANCE = """
 
@@ -89,6 +136,51 @@ print(resize_cylindrical_mesh_region_to_step(
 Center coordinates are `(y, z)` for an X axis, `(x, z)` for Y and `(x, y)`
 for Z. Convert a requested diameter change to a radius change. This fallback
 only moves mesh vertices matching the caller-selected cylindrical region.
+
+For a local planar annular edit (for example, raising one ring-shaped opening
+without moving every terminal face), inspect the mesh/STEP to identify the
+plane axis, circle center, plane position, and inner/outer radii. If the direct
+BRep edit remains invalid, call:
+
+```python
+from cadcopilot.benchmarks.cadgenbench.mesh_fallback import (
+    translate_planar_annulus_mesh_region_to_step,
+)
+print(translate_planar_annulus_mesh_region_to_step(
+    "input.mesh.npz", "output.step",
+    axis="<x|y|z>", center=(<perpendicular coordinate 1>, <coordinate 2>),
+    plane_position_mm=<observed plane position>,
+    inner_radius_mm=<observed inner radius>,
+    outer_radius_mm=<observed outer radius>,
+    distance_mm=<signed translation along axis>,
+))
+```
+
+Cluster mesh vertices by the candidate axis coordinate and radial distance to
+measure an annulus when the source BRep cannot be queried reliably. Positive
+distance moves toward the positive axis direction. This fallback preserves the
+mesh connectivity and moves only vertices on the caller-selected annular plane.
+
+If the intended planar face is visible in the BRep but its circular boundary
+has been split, clipped, or exchanged as line/B-spline edges, do not require
+exactly two circle edges. Use its observed plane coordinate and face center as
+a seed for the connected planar mesh patch:
+
+```python
+from cadcopilot.benchmarks.cadgenbench.mesh_fallback import (
+    translate_planar_mesh_patch_to_step,
+)
+print(translate_planar_mesh_patch_to_step(
+    "input.mesh.npz", "output.step",
+    axis="<x|y|z>", plane_position_mm=<observed plane position>,
+    seed=(<observed perpendicular face-center coordinates>),
+    distance_mm=<signed translation along axis>,
+))
+```
+
+This moves only the edge-connected coplanar triangle component nearest the
+seed. Inspect and render the selected face before invoking it; no target face
+or operation value is inferred by the harness.
 """
 
 
@@ -148,7 +240,13 @@ def _run_agent_with_mesh_sidecars(
             if sidecar.is_file():
                 sidecars.append(sidecar)
     if has_step_input:
-        task_description += _STEP_EDIT_GUIDANCE
+        task_description += (
+            _ARTIFACT_SAFETY_GUIDANCE
+            + _EDITING_COMPLETENESS_GUIDANCE
+            + _STEP_EDIT_GUIDANCE
+        )
+    else:
+        task_description += _ARTIFACT_SAFETY_GUIDANCE + _GENERATION_COMPLETENESS_GUIDANCE
     if sidecars:
         if work_dir is None:
             work_dir = Path(tempfile.mkdtemp(prefix="cadgenbench_agent_"))
@@ -165,8 +263,62 @@ def _run_agent_with_mesh_sidecars(
     )
 
 
+def _candidate_names_produced(execution: Any) -> set[str]:
+    files = getattr(execution, "files_produced", {})
+    if not isinstance(files, dict):
+        return set()
+    return {
+        Path(str(name)).name.lower()
+        for name in files
+        if Path(str(name)).name.lower() in _CANDIDATE_NAMES
+    }
+
+
+def _sanitize_saved_candidates(result: AgentResult, destination: Path) -> None:
+    """Make the canonical artifact come only from a successful producing turn.
+
+    The upstream incremental saver snapshots the live work-directory candidate
+    into every latest turn, even when that turn failed or did not modify the
+    artifact. A failed program can therefore write a valid dummy solid and have
+    it selected solely because its turn number is highest. Quarantine artifacts
+    actually produced by failed executions, remove stale duplicates, and
+    rematerialize the root candidate from the newest successful producing turn.
+    """
+    for record in result.turns:
+        last_producer_succeeded: dict[str, bool] = {}
+        for execution in record.code_executions:
+            for name in _candidate_names_produced(execution):
+                last_producer_succeeded[name] = (
+                    getattr(execution, "success", False) is True
+                )
+
+        turn_dir = destination / f"turn_{record.turn}"
+        for name in _CANDIDATE_NAMES:
+            candidate = turn_dir / name
+            if not candidate.is_file() or last_producer_succeeded.get(name) is True:
+                continue
+            if last_producer_succeeded.get(name) is False:
+                candidate.replace(turn_dir / f"rejected_failed_{name}")
+            else:
+                candidate.unlink()
+
+    for name in _CANDIDATE_NAMES:
+        canonical = destination / name
+        if canonical.exists():
+            canonical.unlink()
+
+    for record in reversed(result.turns):
+        turn_dir = destination / f"turn_{record.turn}"
+        for name in _CANDIDATE_NAMES:
+            candidate = turn_dir / name
+            if candidate.is_file():
+                shutil.copy2(candidate, destination / name)
+                return
+
+
 def _save_with_trace(self: AgentResult, output_dir: str | Path) -> Path:
     destination = _strict_agent_result_save(self, output_dir)
+    _sanitize_saved_candidates(self, destination)
     turns: list[dict[str, Any]] = []
     for record in self.turns:
         executions = []

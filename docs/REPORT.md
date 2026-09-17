@@ -254,6 +254,27 @@ subsequently submitted to CADGen-Bench; the service returned an aggregate score
 of **0.3002** and placed `CADRIG Alpha` on the **Unvalidated** leaderboard. This
 is the first external alpha baseline, not a validated-leaderboard claim.
 
+The official report records validity **1.0000**, generation **0.2151** across
+49 tasks, and editing **0.4305** across 32 tasks. This confirms that the alpha's
+dominant gap is semantic geometry quality rather than file validity, with the
+generation configuration substantially weaker than editing. The submitted
+archive remains immutable; score-driven changes are evaluated in separate
+replacement cohorts.
+
+The first improvement cohort targeted two low-scoring generation fixtures
+(107 and 116) and one low-scoring editing fixture (202). Fixtures 107 and 116
+produced strict-valid candidates with 22 and 69 faces respectively, replacing
+the alpha's visibly simplified flange approximation and repeated box. These
+are local structural improvements, not claimed score gains until an official
+resubmission. Fixture 202 exposed two harness gaps: a failed process could
+leave a valid-looking placeholder candidate, and exact-circle feature matching
+failed on a split/tessellated planar face. CADRIG now rejects artifacts produced
+by failed executions, preserves the newest successful producing turn, supports
+caller-selected connected planar mesh-patch translation, and bounds repetitive
+feature inspection. The autonomous repair produced a strict-valid, watertight
+candidate after 88,508 tokens and $0.248446. The composed three-task improvement
+batch passed independent strict validation with all three candidates valid.
+
 These results demonstrate pipeline viability, not statistical benchmark quality
 or state-of-the-art performance.
 
@@ -299,12 +320,13 @@ automatically regenerates the combined harness evaluation.
 
 The next evaluation sequence is:
 
-1. Preserve the submitted archive hash and capture the generation, editing and
-   per-task breakdown associated with the 0.3002 unvalidated result.
+1. Preserve the submitted archive and its 0.3002 score as the immutable alpha
+   baseline while running score-driven replacement cohorts separately.
 2. Track the benchmark's validation outcome and update the report only when the
    row's status changes.
-3. Inspect the lowest-scoring fixtures and feed only general failure classes
-   back into bounded repair, validation and regression coverage.
+3. Continue small, diverse improvement batches; after each batch, classify
+   failures, add only general repairs and regressions, and compose strict-valid
+   replacements before advancing.
 4. Resume paired model and kernel portability experiments after the first
    score, using identical fixture sets and independent execution boundaries.
 
@@ -315,12 +337,13 @@ The next evaluation sequence is:
   private references.
 - The simple/moderate/complex batch labels are deterministic public-input
   heuristics, not validated predictors of private benchmark difficulty.
-- The first aggregate score is 0.3002 on the Unvalidated leaderboard; validated
-  status and the generation/editing breakdown have not yet been recorded.
+- The first aggregate score is 0.3002 on the Unvalidated leaderboard; its
+  generation/editing breakdown is recorded, but validated status remains
+  pending.
 - The FreeCAD experience remains an alpha adapter rather than a mature product.
-- The mesh fallback emits a faceted BREP and has been exercised on three
-  terminal or cylindrical editing fixtures; its semantic accuracy remains
-  unscored.
+- The mesh fallback emits a faceted BREP and now covers terminal, cylindrical
+  radial, annular-plane and connected planar-patch edits. Strict validity is
+  demonstrated, but semantic accuracy remains unscored.
 - The readiness cohort's exact historical cost is a lower bound because one
   rejected 7,593-token response predates the provider-usage sidecar fix.
 - Provider-side billing may still include transport failures or provider retries

@@ -181,6 +181,203 @@ def resize_cylindrical_mesh_region_to_step(
     }
 
 
+def translate_planar_annulus_mesh_region_to_step(
+    mesh_npz: str | Path,
+    output_step: str | Path,
+    *,
+    axis: str,
+    center: tuple[float, float],
+    plane_position_mm: float,
+    inner_radius_mm: float,
+    outer_radius_mm: float,
+    distance_mm: float,
+    plane_tolerance_mm: float = 0.05,
+    radial_tolerance_mm: float = 0.05,
+    target_triangles: int = 12_000,
+) -> dict[str, Any]:
+    """Translate one caller-selected planar annulus and emit faceted STEP.
+
+    ``center`` is expressed in the two coordinates perpendicular to ``axis``.
+    A positive distance moves toward the positive axis direction. The annulus
+    is selected by its source plane and inner/outer radii; connected mesh
+    vertices outside that local region remain unchanged. Feature discovery and
+    direction selection remain the caller's responsibility.
+    """
+    import numpy as np
+
+    normalized_axis = axis.lower()
+    if normalized_axis not in {"x", "y", "z"}:
+        raise ValueError("axis must be x, y, or z")
+    if len(center) != 2:
+        raise ValueError("center must contain two perpendicular coordinates")
+    if inner_radius_mm < 0:
+        raise ValueError("inner_radius_mm must be non-negative")
+    if outer_radius_mm <= inner_radius_mm:
+        raise ValueError("outer_radius_mm must be greater than inner_radius_mm")
+    if distance_mm == 0:
+        raise ValueError("distance_mm must be non-zero")
+    if plane_tolerance_mm <= 0:
+        raise ValueError("plane_tolerance_mm must be positive")
+    if radial_tolerance_mm <= 0:
+        raise ValueError("radial_tolerance_mm must be positive")
+    if target_triangles < 100:
+        raise ValueError("target_triangles must be at least 100")
+
+    source = Path(mesh_npz).resolve()
+    destination = Path(output_step).resolve()
+    with np.load(source, allow_pickle=False) as data:
+        if not {"vertices", "triangles"}.issubset(data.files):
+            raise ValueError("mesh sidecar must contain vertices and triangles")
+        vertices = data["vertices"].astype(float, copy=True)
+        triangles = data["triangles"].astype(int, copy=True)
+
+    axis_index = {"x": 0, "y": 1, "z": 2}[normalized_axis]
+    radial_indices = {
+        "x": (1, 2),
+        "y": (0, 2),
+        "z": (0, 1),
+    }[normalized_axis]
+    offsets = vertices[:, radial_indices] - np.asarray(center, dtype=float)
+    radii = np.linalg.norm(offsets, axis=1)
+    mask = np.isclose(
+        vertices[:, axis_index], plane_position_mm, atol=plane_tolerance_mm
+    )
+    mask &= radii >= inner_radius_mm - radial_tolerance_mm
+    mask &= radii <= outer_radius_mm + radial_tolerance_mm
+    if int(mask.sum()) < 6:
+        raise RuntimeError("selected planar annulus has fewer than six vertices")
+
+    vertices[mask, axis_index] += distance_mm
+    triangle_count, size_bytes = _write_faceted_step(
+        vertices, triangles, destination, target_triangles
+    )
+    return {
+        "output_step": str(destination),
+        "axis": normalized_axis,
+        "center": [float(value) for value in center],
+        "plane_position_mm": plane_position_mm,
+        "inner_radius_mm": inner_radius_mm,
+        "outer_radius_mm": outer_radius_mm,
+        "distance_mm": distance_mm,
+        "moved_vertex_count": int(mask.sum()),
+        "triangle_count": triangle_count,
+        "size_bytes": size_bytes,
+    }
+
+
+def translate_planar_mesh_patch_to_step(
+    mesh_npz: str | Path,
+    output_step: str | Path,
+    *,
+    axis: str,
+    plane_position_mm: float,
+    seed: tuple[float, float],
+    distance_mm: float,
+    plane_tolerance_mm: float = 0.05,
+    target_triangles: int = 12_000,
+) -> dict[str, Any]:
+    """Translate the coplanar mesh patch nearest a caller-selected seed.
+
+    This is the topology-safe fallback for a planar BRep face whose intended
+    circular or annular boundary was split, clipped, or converted into line and
+    spline edges during exchange. ``seed`` is expressed in the coordinates
+    perpendicular to ``axis`` and should come from the observed target face's
+    center. Only the edge-connected coplanar triangle component nearest that
+    seed is moved.
+    """
+    from collections import defaultdict, deque
+
+    import numpy as np
+
+    normalized_axis = axis.lower()
+    if normalized_axis not in {"x", "y", "z"}:
+        raise ValueError("axis must be x, y, or z")
+    if len(seed) != 2:
+        raise ValueError("seed must contain two perpendicular coordinates")
+    if distance_mm == 0:
+        raise ValueError("distance_mm must be non-zero")
+    if plane_tolerance_mm <= 0:
+        raise ValueError("plane_tolerance_mm must be positive")
+    if target_triangles < 100:
+        raise ValueError("target_triangles must be at least 100")
+
+    source = Path(mesh_npz).resolve()
+    destination = Path(output_step).resolve()
+    with np.load(source, allow_pickle=False) as data:
+        if not {"vertices", "triangles"}.issubset(data.files):
+            raise ValueError("mesh sidecar must contain vertices and triangles")
+        vertices = data["vertices"].astype(float, copy=True)
+        triangles = data["triangles"].astype(int, copy=True)
+
+    axis_index = {"x": 0, "y": 1, "z": 2}[normalized_axis]
+    radial_indices = {
+        "x": (1, 2),
+        "y": (0, 2),
+        "z": (0, 1),
+    }[normalized_axis]
+    triangle_axis_values = vertices[triangles, axis_index]
+    coplanar = (
+        np.ptp(triangle_axis_values, axis=1) <= plane_tolerance_mm
+    ) & np.isclose(
+        triangle_axis_values.mean(axis=1),
+        plane_position_mm,
+        atol=plane_tolerance_mm,
+    )
+    candidate_indices = np.flatnonzero(coplanar)
+    if len(candidate_indices) == 0:
+        raise RuntimeError("no triangles match the selected plane")
+
+    triangle_centers = vertices[triangles[candidate_indices]][
+        :, :, radial_indices
+    ].mean(axis=1)
+    seed_array = np.asarray(seed, dtype=float)
+    seed_triangle = int(
+        candidate_indices[
+            np.argmin(np.linalg.norm(triangle_centers - seed_array, axis=1))
+        ]
+    )
+
+    edge_owners: dict[tuple[int, int], list[int]] = defaultdict(list)
+    for triangle_index in candidate_indices:
+        triangle = triangles[int(triangle_index)]
+        for first, second in ((0, 1), (1, 2), (2, 0)):
+            edge = tuple(sorted((int(triangle[first]), int(triangle[second]))))
+            edge_owners[edge].append(int(triangle_index))
+    neighbors: dict[int, set[int]] = defaultdict(set)
+    for owners in edge_owners.values():
+        if len(owners) == 2:
+            neighbors[owners[0]].add(owners[1])
+            neighbors[owners[1]].add(owners[0])
+
+    component = {seed_triangle}
+    queue = deque([seed_triangle])
+    while queue:
+        current = queue.popleft()
+        for neighbor in neighbors[current]:
+            if neighbor not in component:
+                component.add(neighbor)
+                queue.append(neighbor)
+    moved_indices = np.unique(triangles[list(component)])
+    if len(moved_indices) < 3:
+        raise RuntimeError("selected planar patch has fewer than three vertices")
+
+    vertices[moved_indices, axis_index] += distance_mm
+    triangle_count, size_bytes = _write_faceted_step(
+        vertices, triangles, destination, target_triangles
+    )
+    return {
+        "output_step": str(destination),
+        "axis": normalized_axis,
+        "plane_position_mm": plane_position_mm,
+        "seed": [float(value) for value in seed],
+        "distance_mm": distance_mm,
+        "component_triangle_count": len(component),
+        "moved_vertex_count": len(moved_indices),
+        "triangle_count": triangle_count,
+        "size_bytes": size_bytes,
+    }
+
+
 def _write_faceted_step(
     vertices: Any,
     triangles: Any,

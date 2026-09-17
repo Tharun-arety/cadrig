@@ -174,6 +174,107 @@ def test_cylindrical_mesh_resize_moves_only_selected_ring(
     assert result["moved_vertex_count"] == 8
 
 
+def test_planar_annulus_translation_moves_only_selected_plane_region(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import numpy as np
+
+    vertices = np.asarray(
+        [
+            (2, 0, 5),
+            (0, 2, 5),
+            (-2, 0, 5),
+            (0, -2, 5),
+            (4, 0, 5),
+            (0, 4, 5),
+            (-4, 0, 5),
+            (0, -4, 5),
+            (1, 0, 5),
+            (3, 0, 1),
+            (6, 0, 5),
+        ],
+        dtype=float,
+    )
+    source = tmp_path / "input.mesh.npz"
+    np.savez(source, vertices=vertices, triangles=np.empty((0, 3), dtype=int))
+    captured: dict[str, object] = {}
+
+    def write_step(
+        edited_vertices: object,
+        triangles: object,
+        destination: Path,
+        target_triangles: int,
+    ) -> tuple[int, int]:
+        captured["vertices"] = np.asarray(edited_vertices).copy()
+        return 0, 456
+
+    monkeypatch.setattr(mesh_fallback, "_write_faceted_step", write_step)
+    result = mesh_fallback.translate_planar_annulus_mesh_region_to_step(
+        source,
+        tmp_path / "output.step",
+        axis="z",
+        center=(0, 0),
+        plane_position_mm=5,
+        inner_radius_mm=2,
+        outer_radius_mm=4,
+        distance_mm=10,
+    )
+
+    edited = np.asarray(captured["vertices"])
+    assert np.allclose(edited[:8, 2], 15)
+    assert np.allclose(edited[8:], vertices[8:])
+    assert result["moved_vertex_count"] == 8
+
+
+def test_planar_patch_translation_moves_only_seeded_component(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import numpy as np
+
+    vertices = np.asarray(
+        [
+            (0, 0, 5),
+            (1, 0, 5),
+            (1, 1, 5),
+            (0, 1, 5),
+            (10, 10, 5),
+            (11, 10, 5),
+            (10, 11, 5),
+            (0, 0, 0),
+        ],
+        dtype=float,
+    )
+    triangles = np.asarray([(0, 1, 2), (0, 2, 3), (4, 5, 6), (0, 1, 7)])
+    source = tmp_path / "input.mesh.npz"
+    np.savez(source, vertices=vertices, triangles=triangles)
+    captured: dict[str, object] = {}
+
+    def write_step(
+        edited_vertices: object,
+        edited_triangles: object,
+        destination: Path,
+        target_triangles: int,
+    ) -> tuple[int, int]:
+        captured["vertices"] = np.asarray(edited_vertices).copy()
+        return 4, 789
+
+    monkeypatch.setattr(mesh_fallback, "_write_faceted_step", write_step)
+    result = mesh_fallback.translate_planar_mesh_patch_to_step(
+        source,
+        tmp_path / "output.step",
+        axis="z",
+        plane_position_mm=5,
+        seed=(0.5, 0.5),
+        distance_mm=10,
+    )
+
+    edited = np.asarray(captured["vertices"])
+    assert np.allclose(edited[:4, 2], 15)
+    assert np.allclose(edited[4:], vertices[4:])
+    assert result["component_triangle_count"] == 2
+    assert result["moved_vertex_count"] == 4
+
+
 def test_agent_wrapper_copies_mesh_sidecar_and_adds_generic_guidance(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -206,8 +307,198 @@ def test_agent_wrapper_copies_mesh_sidecar_and_adds_generic_guidance(
     assert "Kernel fallback available" in str(captured["description"])
     assert "Imported STEP compatibility notes" in str(captured["description"])
     assert "GeomType.CYLINDER" in str(captured["description"])
+    assert "Never write a dummy" in str(captured["description"])
+    assert "Treat the requested edit as local" in str(captured["description"])
+    assert "at most two distinct execution turns" in str(captured["description"])
+    assert "translate_planar_annulus_mesh_region_to_step" in str(
+        captured["description"]
+    )
+    assert "translate_planar_mesh_patch_to_step" in str(captured["description"])
     assert "fixture" not in str(captured["description"]).lower()
     assert captured["validation_passed"] is False
+
+
+def test_generation_wrapper_requires_semantic_completeness(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    drawing = tmp_path / "input.png"
+    drawing.write_bytes(b"png")
+    captured: dict[str, object] = {}
+
+    def run_agent(description: str, *args: object, **kwargs: object) -> object:
+        captured["description"] = description
+        return object()
+
+    monkeypatch.setattr(official_cli, "_strict_run_agent", run_agent)
+    official_cli._run_agent_with_mesh_sidecars(
+        "Reproduce the geometry from the drawing.",
+        input_files=[drawing],
+        work_dir=tmp_path / "work",
+    )
+
+    description = str(captured["description"])
+    assert "A bounding box, single primitive" in description
+    assert "Implement every clearly discernible major feature" in description
+    assert "Treat the requested edit as local" not in description
+
+
+def test_failed_candidate_is_quarantined_and_cannot_replace_success(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    good = SimpleNamespace(
+        turn=0,
+        code_executions=[
+            SimpleNamespace(
+                success=True,
+                files_produced={"output.step": 4},
+                code="good",
+                duration_s=1.0,
+                stdout="",
+                stderr="",
+            )
+        ],
+        prompt_tokens=1,
+        completion_tokens=1,
+        reasoning_tokens=None,
+        duration_s=1.0,
+        assistant_message="good",
+    )
+    failed = SimpleNamespace(
+        turn=1,
+        code_executions=[
+            SimpleNamespace(
+                success=False,
+                files_produced={"output.step": 5},
+                code="dummy",
+                duration_s=1.0,
+                stdout="",
+                stderr="failed",
+            )
+        ],
+        prompt_tokens=1,
+        completion_tokens=1,
+        reasoning_tokens=None,
+        duration_s=1.0,
+        assistant_message="dummy",
+    )
+    result = SimpleNamespace(
+        turns=[good, failed],
+        total_tokens=4,
+        total_duration_s=2.0,
+        completed=False,
+        stopped_reason="max_iterations",
+    )
+
+    def save(_result: object, output_dir: str | Path) -> Path:
+        destination = Path(output_dir)
+        (destination / "turn_0").mkdir(parents=True)
+        (destination / "turn_1").mkdir()
+        (destination / "turn_0" / "output.step").write_bytes(b"good")
+        (destination / "turn_1" / "output.step").write_bytes(b"dummy")
+        (destination / "output.step").write_bytes(b"dummy")
+        return destination
+
+    monkeypatch.setattr(official_cli, "_strict_agent_result_save", save)
+    destination = official_cli._save_with_trace(result, tmp_path / "saved")
+
+    assert (destination / "output.step").read_bytes() == b"good"
+    assert not (destination / "turn_1" / "output.step").exists()
+    assert (destination / "turn_1" / "rejected_failed_output.step").read_bytes() == b"dummy"
+
+
+def test_failed_only_candidate_is_not_published(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    failed = SimpleNamespace(
+        turn=0,
+        code_executions=[
+            SimpleNamespace(
+                success=False,
+                files_produced={"output.step": 5},
+                code="dummy",
+                duration_s=1.0,
+                stdout="",
+                stderr="failed",
+            )
+        ],
+        prompt_tokens=1,
+        completion_tokens=1,
+        reasoning_tokens=None,
+        duration_s=1.0,
+        assistant_message="dummy",
+    )
+    result = SimpleNamespace(
+        turns=[failed],
+        total_tokens=2,
+        total_duration_s=1.0,
+        completed=False,
+        stopped_reason="max_iterations",
+    )
+
+    def save(_result: object, output_dir: str | Path) -> Path:
+        destination = Path(output_dir)
+        (destination / "turn_0").mkdir(parents=True)
+        (destination / "turn_0" / "output.step").write_bytes(b"dummy")
+        (destination / "output.step").write_bytes(b"dummy")
+        return destination
+
+    monkeypatch.setattr(official_cli, "_strict_agent_result_save", save)
+    destination = official_cli._save_with_trace(result, tmp_path / "saved")
+
+    assert not (destination / "output.step").exists()
+    assert (destination / "turn_0" / "rejected_failed_output.step").is_file()
+
+
+def test_last_candidate_producer_in_a_turn_controls_publication(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    executions = [
+        SimpleNamespace(
+            success=True,
+            files_produced={"output.step": 4},
+            code="good",
+            duration_s=1.0,
+            stdout="",
+            stderr="",
+        ),
+        SimpleNamespace(
+            success=False,
+            files_produced={"output.step": 5},
+            code="bad",
+            duration_s=1.0,
+            stdout="",
+            stderr="failed",
+        ),
+    ]
+    turn = SimpleNamespace(
+        turn=0,
+        code_executions=executions,
+        prompt_tokens=1,
+        completion_tokens=1,
+        reasoning_tokens=None,
+        duration_s=2.0,
+        assistant_message="two producers",
+    )
+    result = SimpleNamespace(
+        turns=[turn],
+        total_tokens=2,
+        total_duration_s=2.0,
+        completed=False,
+        stopped_reason="max_iterations",
+    )
+
+    def save(_result: object, output_dir: str | Path) -> Path:
+        destination = Path(output_dir)
+        (destination / "turn_0").mkdir(parents=True)
+        (destination / "turn_0" / "output.step").write_bytes(b"bad")
+        (destination / "output.step").write_bytes(b"bad")
+        return destination
+
+    monkeypatch.setattr(official_cli, "_strict_agent_result_save", save)
+    destination = official_cli._save_with_trace(result, tmp_path / "saved")
+
+    assert not (destination / "output.step").exists()
+    assert (destination / "turn_0" / "rejected_failed_output.step").read_bytes() == b"bad"
 
 
 def test_completion_token_allowance_reserves_prompt_before_call() -> None:
