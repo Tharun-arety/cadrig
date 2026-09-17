@@ -103,6 +103,10 @@ def summarize_run(run_dir: Path) -> dict[str, Any]:
     manifest = inputs.get("manifest.json", {})
     summary = inputs.get("run_summary.json", {})
     verification = inputs.get("verification.json", {})
+    cohort = read_json(resolved / "cohort.json") or {}
+    cohort_config = _mapping(cohort.get("config"))
+    if cohort:
+        warnings = [warning for warning in warnings if warning != "missing run_summary.json"]
     request = _mapping(manifest.get("request"))
     fixtures = _fixtures(manifest)
     score_available = _has_ground_truth_scores(resolved, fixtures)
@@ -114,7 +118,7 @@ def summarize_run(run_dir: Path) -> dict[str, Any]:
     if validity_rate is None and expected_count and valid_count is not None:
         validity_rate = valid_count / expected_count
 
-    status = _text(manifest.get("status"))
+    status = _text(cohort.get("status")) or _text(manifest.get("status"))
     if status is None:
         if verification.get("passed") is True:
             status = "verified"
@@ -131,11 +135,13 @@ def summarize_run(run_dir: Path) -> dict[str, Any]:
         "run_dir": str(resolved),
         "run_id": _text(manifest.get("run_id")) or resolved.name,
         "status": status,
-        "model": _text(request.get("model")),
-        "backend": _text(request.get("backend")),
-        "reasoning_effort": _text(request.get("reasoning_effort")),
-        "started_at": _text(manifest.get("started_at")),
-        "finished_at": _text(manifest.get("finished_at")),
+        "model": _text(request.get("model")) or _text(cohort_config.get("model")),
+        "backend": _text(request.get("backend")) or _text(cohort_config.get("backend")),
+        "reasoning_effort": _text(request.get("reasoning_effort"))
+        or _text(cohort_config.get("reasoning_effort")),
+        "started_at": _text(manifest.get("started_at")) or _text(cohort.get("created_at")),
+        "finished_at": _text(manifest.get("finished_at"))
+        or (_text(cohort.get("updated_at")) if status == "completed" else None),
         "duration_seconds": _number(manifest.get("duration_seconds")),
         "scope": scope,
         "fixtures": fixtures,
@@ -173,7 +179,10 @@ def summarize_run(run_dir: Path) -> dict[str, Any]:
             "invalid_count": _integer(verification.get("invalid_count")),
             "missing_count": _integer(verification.get("missing_count")),
         },
-        "artifacts": {name.removesuffix(".json"): name in inputs for name in _FILES},
+        "artifacts": {
+            **{name.removesuffix(".json"): name in inputs for name in _FILES},
+            "cohort": bool(cohort),
+        },
         "warnings": warnings,
     }
 

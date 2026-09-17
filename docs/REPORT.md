@@ -105,8 +105,17 @@ a second strict verification in `readiness-12-composed-002`. A fingerprinted
 production plan now partitions the remaining 69 fixtures into twelve cohorts of
 five or six tasks. Every cohort mixes generation and editing tasks and contains
 simple, moderate and complex public-input heuristic bands. This planning
-metadata is not a claim about private benchmark difficulty or accuracy. The
-automated suite currently contains 92 passing tests.
+metadata is not a claim about private benchmark difficulty or accuracy.
+
+The first six-task production cohort completed with six strict-valid candidates,
+191,392 provider-reported tokens and $0.516754 at the declared rates. All six
+traces and candidate hashes are present. Twenty-two of 27 code executions
+succeeded; each of the three observed repair opportunities recovered, while two
+traces ended through the strict agent-completion path and four retained valid
+candidates at the turn limit. The six candidates were atomically combined with
+the previous 12 and passed double strict verification in
+`readiness-18-composed-001`. The automated suite currently contains 93 passing
+tests.
 
 These results demonstrate pipeline viability, not statistical benchmark quality
 or state-of-the-art performance.
@@ -153,7 +162,7 @@ automatically regenerates the combined harness evaluation.
 
 The next evaluation sequence is:
 
-1. Admit the 69 unattempted public fixtures through immutable plan
+1. Continue admitting the remaining 63 unattempted public fixtures through immutable plan
    `production-batches-002`, one five- or six-task cohort at a time, using the
    low-reasoning, 16k-per-call policy and strict completion gate.
 2. After every cohort, preserve strict-valid outputs, classify failures, add
@@ -168,7 +177,7 @@ The next evaluation sequence is:
 
 ## 8. Limitations
 
-- Only 12 unique real public fixtures have been executed, although all 12 now
+- Only 18 unique real public fixtures have been executed, although all 18 now
   have strict-valid candidates.
 - The simple/moderate/complex batch labels are deterministic public-input
   heuristics, not validated predictors of private benchmark difficulty.

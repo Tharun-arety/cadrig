@@ -102,6 +102,7 @@ def test_summarize_run_tolerates_missing_and_invalid_partial_files(tmp_path: Pat
         "manifest": False,
         "run_summary": False,
         "verification": True,
+        "cohort": False,
     }
     assert summary["warnings"] == ["invalid manifest.json", "missing run_summary.json"]
 
@@ -141,3 +142,50 @@ def test_public_candidate_only_zero_is_unscored(tmp_path: Path) -> None:
     assert report["best_run_id"] is None
     assert report["runs"][0]["metrics"]["aggregate_score"] is None
     assert report["runs"][0]["metrics"]["reported_aggregate_score"] == 0.0
+
+
+def test_cohort_report_uses_scheduler_metadata_without_run_summary_warning(
+    tmp_path: Path,
+) -> None:
+    run_dir = tmp_path / "batch-01"
+    run_dir.mkdir()
+    _write_json(
+        run_dir / "manifest.json",
+        {"status": "completed", "request": {"fixtures": ["101"]}},
+    )
+    _write_json(
+        run_dir / "cohort.json",
+        {
+            "status": "completed",
+            "created_at": "2026-09-17T10:00:00+00:00",
+            "updated_at": "2026-09-17T10:10:00+00:00",
+            "config": {
+                "model": "provider/model",
+                "backend": "build123d",
+                "reasoning_effort": "low",
+            },
+        },
+    )
+    _write_json(
+        run_dir / "verification.json",
+        {
+            "passed": True,
+            "complete": True,
+            "sanity_checked": True,
+            "expected_count": 1,
+            "candidate_count": 1,
+            "valid_count": 1,
+            "invalid_count": 0,
+            "missing_count": 0,
+        },
+    )
+
+    result = summarize_run(run_dir)
+
+    assert result["model"] == "provider/model"
+    assert result["backend"] == "build123d"
+    assert result["reasoning_effort"] == "low"
+    assert result["started_at"] == "2026-09-17T10:00:00+00:00"
+    assert result["finished_at"] == "2026-09-17T10:10:00+00:00"
+    assert result["artifacts"]["cohort"] is True
+    assert result["warnings"] == []
