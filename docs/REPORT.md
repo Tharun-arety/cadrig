@@ -129,6 +129,15 @@ The resulting candidates passed double strict verification in
 `readiness-24-composed-001`. The automated suite currently contains 96 passing
 tests.
 
+The third six-task cohort completed without a task-level retry: all six outputs
+were strict-valid after 171,299 tokens and $0.477248. It retained 26 turns and
+24 executions with 19 successful executions, complete trace/verification/hash
+coverage, and no final failure taxonomy. Two of three within-trace repair
+opportunities recovered; the remaining failed refinement occurred after a
+valid candidate had already been preserved. No geometry repair or harness
+change was required. The cumulative `readiness-30-composed-001` set passed both
+strict verification stages with 30 candidates.
+
 These results demonstrate pipeline viability, not statistical benchmark quality
 or state-of-the-art performance.
 
@@ -174,7 +183,7 @@ automatically regenerates the combined harness evaluation.
 
 The next evaluation sequence is:
 
-1. Continue admitting the remaining 57 unattempted public fixtures through immutable plan
+1. Continue admitting the remaining 51 unattempted public fixtures through immutable plan
    `production-batches-002`, one five- or six-task cohort at a time, using the
    low-reasoning, 16k-per-call policy and strict completion gate.
 2. After every cohort, preserve strict-valid outputs, classify failures, add
@@ -189,7 +198,7 @@ The next evaluation sequence is:
 
 ## 8. Limitations
 
-- Only 24 unique real public fixtures have been executed, although all 24 now
+- Only 30 unique real public fixtures have been executed, although all 30 now
   have strict-valid candidates.
 - The simple/moderate/complex batch labels are deterministic public-input
   heuristics, not validated predictors of private benchmark difficulty.
