@@ -45,6 +45,8 @@ must report unsupported tasks truthfully.
 - [x] Durable invocation logs, interruption manifests and post-run reconciliation.
 - [x] Hashed candidate verification and atomic self-validating submission ZIPs.
 - [x] Resumable fixture scheduling with conservative cross-run token/cost admission.
+- [x] First-class harness evaluation for portability, recovery, observability,
+  latency, tokens and explicit-rate cost without a composite score.
 - [ ] Complete 81-sample baseline run and first official score.
 
 ## R1 — Useful FreeCAD copilot

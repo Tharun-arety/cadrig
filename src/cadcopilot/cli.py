@@ -169,6 +169,11 @@ def build_parser() -> argparse.ArgumentParser:
         "report", help="summarize and compare CADGenBench experiment runs"
     )
     benchmark_report.add_argument("run_dirs", nargs="+", type=Path)
+    benchmark_harness_eval = cadgenbench_commands.add_parser(
+        "harness-eval", help="measure portability, recovery, observability, latency and cost"
+    )
+    benchmark_harness_eval.add_argument("run_dirs", nargs="+", type=Path)
+    benchmark_harness_eval.add_argument("-o", "--output", type=Path)
     return parser
 
 
@@ -176,6 +181,7 @@ def _run_cadgenbench_command(args: argparse.Namespace) -> int:
     from cadcopilot.benchmarks.cadgenbench import (
         CadgenbenchCohortConfig,
         CadgenbenchRunConfig,
+        evaluate_harness,
         package_run,
         report_runs,
         run_cohort,
@@ -264,6 +270,15 @@ def _run_cadgenbench_command(args: argparse.Namespace) -> int:
 
         if args.benchmark_command == "report":
             print(json.dumps(report_runs(args.run_dirs), indent=2))
+            return 0
+
+        if args.benchmark_command == "harness-eval":
+            from cadcopilot.benchmarks.cadgenbench.common import write_json_atomic
+
+            evaluation = evaluate_harness(args.run_dirs)
+            if args.output is not None:
+                write_json_atomic(args.output.resolve(), evaluation)
+            print(json.dumps(evaluation, indent=2))
             return 0
 
         result = package_run(

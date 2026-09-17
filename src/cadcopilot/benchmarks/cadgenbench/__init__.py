@@ -1,5 +1,6 @@
 """CADGenBench runner, verification and submission packaging."""
 
+from .harness_eval import evaluate_harness
 from .package import PackageResult, package_run
 from .report import report_runs, summarize_run
 from .runner import CadgenbenchRunConfig, run_official_baseline
@@ -12,6 +13,7 @@ __all__ = [
     "CohortResult",
     "PackageResult",
     "VerificationReport",
+    "evaluate_harness",
     "package_run",
     "report_runs",
     "run_cohort",

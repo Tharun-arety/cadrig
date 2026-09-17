@@ -201,10 +201,19 @@ create a leaderboard ZIP:
 
 .\.venv\Scripts\cadrig.exe benchmark cadgenbench report <run-a> <run-b>
 
+.\.venv\Scripts\cadrig.exe benchmark cadgenbench harness-eval <run-or-cohort> `
+  -o results/cadgenbench/harness-evaluation.json
+
 .\.venv\Scripts\cadrig.exe benchmark cadgenbench package <run-dir> `
   --require-sanity `
   --submitter "Your Name" --name "CADRIG Alpha" --agree
 ```
+
+`harness-eval` emits a metric vector rather than a composite score. It reports
+observed model/kernel diversity, validation and trace coverage, retries,
+execution repair, latency distributions, tokens, and cost when explicit rates
+were recorded. Portability is marked demonstrated only when the supplied runs
+contain at least two distinct models or kernels.
 
 Production packaging requires official sanity validation and publication
 consent, hashes each verified candidate, and atomically self-checks the final
