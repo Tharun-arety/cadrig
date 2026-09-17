@@ -67,6 +67,28 @@ print(extend_terminal_mesh_to_step(
 Use `both` only for a symmetric extension; it moves each terminal outward by
 `distance_mm`. Replace every placeholder from the current task and render. No
 operation values are supplied by the harness.
+
+For a radial resize such as widening an axial through bore, first inspect the
+target cylindrical face's true axis, center, radius and axial span. Do not use
+`Face.center()` as the cylinder-axis location. One generic inspection path is
+`BRepAdaptor_Surface(face.wrapped).Cylinder().Axis()`. If direct BRep edits
+remain invalid, call:
+
+```python
+from cadcopilot.benchmarks.cadgenbench.mesh_fallback import (
+    resize_cylindrical_mesh_region_to_step,
+)
+print(resize_cylindrical_mesh_region_to_step(
+    "input.mesh.npz", "output.step",
+    axis="<x|y|z>", center=(<perpendicular coordinate 1>, <coordinate 2>),
+    current_radius_mm=<observed radius>, radial_delta_mm=<radius change>,
+    axis_min_mm=<observed minimum>, axis_max_mm=<observed maximum>,
+))
+```
+
+Center coordinates are `(y, z)` for an X axis, `(x, z)` for Y and `(x, y)`
+for Z. Convert a requested diameter change to a radius change. This fallback
+only moves mesh vertices matching the caller-selected cylindrical region.
 """
 
 

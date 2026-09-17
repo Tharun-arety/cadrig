@@ -126,7 +126,7 @@ and repair cohorts, all six tasks are valid after seven attempts, 202,270
 tokens, and $0.635510. Cross-cohort evaluation now groups matching task IDs and
 execution configurations as retries rather than inflating the task count.
 The resulting candidates passed double strict verification in
-`readiness-24-composed-001`. The automated suite currently contains 97 passing
+`readiness-24-composed-001`. The automated suite currently contains 98 passing
 tests.
 
 The third six-task cohort completed without a task-level retry: all six outputs
@@ -171,7 +171,7 @@ all six tasks are strict-valid after 208,968 tokens and $0.633306. The composed
 set passed both strict gates; combined evidence records five repair
 opportunities, four recoveries, complete trace coverage, and the original
 failed task attempt. The campaign now has 48 unique strict-valid fixtures, and
-the automated suite contains 97 passing tests.
+the automated suite contains 98 passing tests.
 
 The seventh cohort completed all six tasks without a task-level retry after
 186,689 tokens and $0.515208. All candidates passed independent strict sanity
@@ -199,6 +199,19 @@ maximum to 62,423 tokens and 221.75 traced seconds without exceeding its task
 budget. It subsequently produced three successful refinements. No repair
 cohort or code change was required. The campaign now has 66 unique
 strict-valid fixtures.
+
+The tenth cohort initially completed four of five tasks. Fixture 217, a radial
+through-bore resize, exposed a gap distinct from terminal length edits: the
+input BRep passed source validation but its unchanged round trip became
+unorientable, and the existing terminal fallback could not express a radial
+operation. CADRIG now provides a caller-parameterized cylindrical mesh-region
+resize using an explicit axis, perpendicular center, current radius, axial span
+and radial delta. A separate retry used this generic path and passed both
+strict gates. Across six attempts, all five tasks are strict-valid after
+228,129 tokens and $0.686808. The original failed attempt remains visible;
+combined evidence records three repair opportunities and two recoveries. The
+campaign now has 71 unique strict-valid fixtures, and the automated suite has
+98 passing tests.
 
 These results demonstrate pipeline viability, not statistical benchmark quality
 or state-of-the-art performance.
@@ -245,7 +258,7 @@ automatically regenerates the combined harness evaluation.
 
 The next evaluation sequence is:
 
-1. Continue admitting the remaining 15 unattempted public fixtures through immutable plan
+1. Continue admitting the remaining 10 unattempted public fixtures through immutable plan
    `production-batches-002`, one five- or six-task cohort at a time, using the
    low-reasoning, 16k-per-call policy and strict completion gate.
 2. After every cohort, preserve strict-valid outputs, classify failures, add
@@ -261,14 +274,15 @@ The next evaluation sequence is:
 
 ## 8. Limitations
 
-- Only 66 unique real public fixtures have been executed, although all 66 now
+- Only 71 unique real public fixtures have been executed, although all 71 now
   have strict-valid candidates.
 - The simple/moderate/complex batch labels are deterministic public-input
   heuristics, not validated predictors of private benchmark difficulty.
 - No official leaderboard score has been obtained.
 - The FreeCAD experience remains an alpha adapter rather than a mature product.
-- The mesh fallback emits a faceted BREP and has been exercised on only two
-  terminal editing fixtures; its semantic accuracy remains unscored.
+- The mesh fallback emits a faceted BREP and has been exercised on three
+  terminal or cylindrical editing fixtures; its semantic accuracy remains
+  unscored.
 - The readiness cohort's exact historical cost is a lower bound because one
   rejected 7,593-token response predates the provider-usage sidecar fix.
 - Provider-side billing may still include transport failures or provider retries

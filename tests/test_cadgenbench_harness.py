@@ -8,7 +8,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from cadcopilot.benchmarks.cadgenbench import official_cli
+from cadcopilot.benchmarks.cadgenbench import mesh_fallback, official_cli
 from cadcopilot.benchmarks.cadgenbench.compat import (
     completion_token_allowance,
     extract_code_blocks_tolerant,
@@ -121,6 +121,57 @@ def test_terminal_mesh_edit_contract_rejects_unsafe_parameters() -> None:
         _validate_terminal_edit("x", "min", 0, 12_000)
     with pytest.raises(ValueError, match="target_triangles"):
         _validate_terminal_edit("x", "min", 10, 99)
+
+
+def test_cylindrical_mesh_resize_moves_only_selected_ring(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import numpy as np
+
+    vertices = np.asarray(
+        [
+            (2, 0, -1),
+            (0, 2, -1),
+            (-2, 0, -1),
+            (0, -2, -1),
+            (2, 0, 1),
+            (0, 2, 1),
+            (-2, 0, 1),
+            (0, -2, 1),
+            (4, 0, 0),
+        ],
+        dtype=float,
+    )
+    source = tmp_path / "input.mesh.npz"
+    np.savez(source, vertices=vertices, triangles=np.empty((0, 3), dtype=int))
+    captured: dict[str, object] = {}
+
+    def write_step(
+        edited_vertices: object,
+        triangles: object,
+        destination: Path,
+        target_triangles: int,
+    ) -> tuple[int, int]:
+        captured["vertices"] = np.asarray(edited_vertices).copy()
+        return 0, 123
+
+    monkeypatch.setattr(mesh_fallback, "_write_faceted_step", write_step)
+    result = mesh_fallback.resize_cylindrical_mesh_region_to_step(
+        source,
+        tmp_path / "output.step",
+        axis="z",
+        center=(0, 0),
+        current_radius_mm=2,
+        radial_delta_mm=1,
+        axis_min_mm=-1,
+        axis_max_mm=1,
+    )
+
+    edited = np.asarray(captured["vertices"])
+    assert np.allclose(np.linalg.norm(edited[:8, :2], axis=1), 3)
+    assert np.allclose(edited[:8, 2], vertices[:8, 2])
+    assert np.allclose(edited[8], vertices[8])
+    assert result["moved_vertex_count"] == 8
 
 
 def test_agent_wrapper_copies_mesh_sidecar_and_adds_generic_guidance(
