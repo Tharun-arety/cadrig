@@ -249,8 +249,10 @@ STEP candidates and `meta.json`. An independent audit found no missing, extra
 or unexpected entries and read every archive member successfully. The archive
 SHA-256 is `31b2c2992cab5c1a9543de10c6b3d93a78c718c3d35508382c43113f0fb1603d`.
 This establishes full-set pipeline completion and public sanity validity. It
-does not establish semantic accuracy or an official CADGen-Bench score; those
-require evaluation by the benchmark service.
+does not by itself establish semantic accuracy. The exact audited archive was
+subsequently submitted to CADGen-Bench; the service returned an aggregate score
+of **0.3002** and placed `CADRIG Alpha` on the **Unvalidated** leaderboard. This
+is the first external alpha baseline, not a validated-leaderboard claim.
 
 These results demonstrate pipeline viability, not statistical benchmark quality
 or state-of-the-art performance.
@@ -297,11 +299,10 @@ automatically regenerates the combined harness evaluation.
 
 The next evaluation sequence is:
 
-1. Submit the audited 81-task archive to obtain the first official external
-   score.
-2. Preserve the submitted archive hash and record the official overall,
-   generation and editing results without relabeling strict validity as
-   semantic accuracy.
+1. Preserve the submitted archive hash and capture the generation, editing and
+   per-task breakdown associated with the 0.3002 unvalidated result.
+2. Track the benchmark's validation outcome and update the report only when the
+   row's status changes.
 3. Inspect the lowest-scoring fixtures and feed only general failure classes
    back into bounded repair, validation and regression coverage.
 4. Resume paired model and kernel portability experiments after the first
@@ -314,7 +315,8 @@ The next evaluation sequence is:
   private references.
 - The simple/moderate/complex batch labels are deterministic public-input
   heuristics, not validated predictors of private benchmark difficulty.
-- No official leaderboard score has been obtained.
+- The first aggregate score is 0.3002 on the Unvalidated leaderboard; validated
+  status and the generation/editing breakdown have not yet been recorded.
 - The FreeCAD experience remains an alpha adapter rather than a mature product.
 - The mesh fallback emits a faceted BREP and has been exercised on three
   terminal or cylindrical editing fixtures; its semantic accuracy remains
