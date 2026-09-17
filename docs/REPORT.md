@@ -221,6 +221,37 @@ opportunity recovered. Three traces ended with accepted `done` and two reached
 hash coverage were complete, so no task-level retry or code change was needed.
 The campaign now has 76 unique strict-valid fixtures.
 
+The twelfth and final production cohort completed all five tasks after 117,024
+tokens and $0.325208. All five candidates passed independent strict sanity
+validation. Across 18 turns and 15 executions, 13 executions succeeded; both
+observed failed-execution repair opportunities recovered. Three traces ended
+with accepted `done` and two reached `max_iterations` with valid candidates
+retained. Trace, verification and candidate-hash coverage were complete, so no
+task-level retry or code change was required.
+
+The completed production phase covers 69 unique tasks through 73 attempts,
+including four explicit task-level retries. All 69 tasks have a strict-valid
+candidate. Its combined metric vector records 317 turns, 289 executions, 243
+successful executions, 28 within-trace repair opportunities and 24 successful
+repairs. It also records 2,223,243 provider-accounted tokens and $6.519986 at
+the declared rates. Attempt-level trace coverage is 98.63%; verification and
+candidate-hash coverage are each 94.52% because the denominator retains failed
+and abandoned attempts that could not publish a candidate. The failure
+taxonomy retains one abandoned attempt, three failed attempts and one missing
+trace instead of erasing them after recovery.
+
+The 69 production candidates were composed with the 12 previously verified
+readiness candidates into `readiness-81-composed-001`. All 81 unique public
+fixtures passed composition-time strict verification and a second independent
+strict verification. Production packaging performed a third strict pass and
+created a 52,317,179-byte archive containing exactly 81 task directories, 81
+STEP candidates and `meta.json`. An independent audit found no missing, extra
+or unexpected entries and read every archive member successfully. The archive
+SHA-256 is `31b2c2992cab5c1a9543de10c6b3d93a78c718c3d35508382c43113f0fb1603d`.
+This establishes full-set pipeline completion and public sanity validity. It
+does not establish semantic accuracy or an official CADGen-Bench score; those
+require evaluation by the benchmark service.
+
 These results demonstrate pipeline viability, not statistical benchmark quality
 or state-of-the-art performance.
 
@@ -266,24 +297,21 @@ automatically regenerates the combined harness evaluation.
 
 The next evaluation sequence is:
 
-1. Admit the remaining 5 unattempted public fixtures through immutable plan
-   `production-batches-002`, one five- or six-task cohort at a time, using the
-   low-reasoning, 16k-per-call policy and strict completion gate.
-2. After every cohort, preserve strict-valid outputs, classify failures, add
-   only generic fixes and regression tests, and compose separately rerun
-   replacements before admitting the next cohort.
-3. Apply the mesh fallback only when a watertight sidecar exists and either the
-   source BREP is invalid or direct terminal edits repeatedly produce invalid
-   geometry; retain this path in provenance.
-4. Compose the new cohorts with the 12-candidate verified staging run.
-5. Strictly validate all 81 outputs, package and submit the first official
-   external score.
-6. Resume paired model and kernel portability experiments after the first score.
+1. Submit the audited 81-task archive to obtain the first official external
+   score.
+2. Preserve the submitted archive hash and record the official overall,
+   generation and editing results without relabeling strict validity as
+   semantic accuracy.
+3. Inspect the lowest-scoring fixtures and feed only general failure classes
+   back into bounded repair, validation and regression coverage.
+4. Resume paired model and kernel portability experiments after the first
+   score, using identical fixture sets and independent execution boundaries.
 
 ## 8. Limitations
 
-- Only 76 unique real public fixtures have been executed, although all 76 now
-  have strict-valid candidates.
+- All 81 public fixtures have strict-valid candidates, but strict public sanity
+  checks do not measure instruction fidelity or geometric similarity to the
+  private references.
 - The simple/moderate/complex batch labels are deterministic public-input
   heuristics, not validated predictors of private benchmark difficulty.
 - No official leaderboard score has been obtained.
@@ -295,6 +323,9 @@ The next evaluation sequence is:
   rejected 7,593-token response predates the provider-usage sidecar fix.
 - Provider-side billing may still include transport failures or provider retries
   that do not return a usage receipt to the harness.
+- Full-set strict verification currently checks candidates serially and emits
+  no per-candidate progress, making repeated 81-task validation appear stalled
+  even though it completes deterministically.
 - Model and kernel portability are architectural and test-supported claims;
   comparative empirical results are still pending.
 
