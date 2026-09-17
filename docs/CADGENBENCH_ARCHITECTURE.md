@@ -326,6 +326,31 @@ admission budget; `matrix.json` stores the immutable experiment fingerprint and
 aggregate ledger. A separate matrix lock prevents concurrent coordinators while
 the existing cohort locks continue to protect individual cells.
 
+Production coverage adds a deterministic admission planner above the same
+cohort scheduler. It profiles all authoritative public fixtures before
+excluding already verified candidates, assigns within-family complexity
+tertiles, and balances generation/editing plus simple/moderate/complex strata
+across small cohorts. The heuristic uses public input bytes, drawing-view count,
+and edit-language signals such as topology changes, multiplicity, and positional
+ambiguity. It is workload scheduling metadata, not a substitute for the private
+CADGen-Bench accuracy metric.
+
+The saved plan binds the dataset inventory fingerprint, completed-candidate
+hashes, fixture membership, model, kernel, reasoning policy, per-task limits,
+and explicit pricing. Each batch reserves its full task-level token exposure
+and the conservative all-output cost ceiling. The runner refuses a modified
+plan or dataset and delegates one batch at a time to independent resumable
+cohort state. This creates the following evidence loop:
+
+```text
+plan batch -> execute -> strict verify -> failure taxonomy -> generic repair
+     ^                                                        |
+     `--------- compose valid replacements and continue <-----'
+```
+
+Fixture-specific operation values are never added to the harness during this
+loop. Failed and superseded attempts remain immutable evidence.
+
 For the FreeCAD product, the panel submits a job and listens to events. Only the
 small final native-document transaction is marshalled onto FreeCAD's main
 thread. Long-running inference, rendering and candidate search never block Qt.
@@ -393,6 +418,7 @@ src/cadcopilot/
     dataset.py
     runner.py
     scheduler.py
+    batch_plan.py
     matrix.py
     harness_eval.py
     sanity.py

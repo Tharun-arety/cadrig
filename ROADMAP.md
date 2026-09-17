@@ -49,11 +49,14 @@ must report unsupported tasks truthfully.
 - [x] Strict completion gate requiring valid, watertight, mesh-renderable output.
 - [x] Agent-selected mesh-domain fallback for an invalid editing source STEP.
 - [x] Atomic multi-cohort candidate composition with duplicate conflict checks.
+- [x] Fingerprinted, diversity-balanced production batches with per-batch
+  token/cost ceilings and drift-resistant resumable execution.
 - [x] First-class harness evaluation for portability, recovery, observability,
   latency, tokens and explicit-rate cost without a composite score.
 - [x] Resumable paired model-by-kernel calibration matrices with isolated cell
   budgets, fingerprints, locking and automatic harness evaluation.
-- [ ] Complete 81-sample baseline run and first official score.
+- [ ] Execute the 12 planned production batches with repair gates, compose all
+  81 strict-valid candidates, and obtain the first official score.
 
 ## R1 — Useful FreeCAD copilot
 

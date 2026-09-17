@@ -159,9 +159,38 @@ Run a pilot before spending the model budget for all 81 samples:
   --max-duration 600
 ```
 
-For a production cohort, use the resumable scheduler. It runs fixtures
-sequentially in isolated attempt directories, strictly validates each STEP,
-and reserves the complete per-task cap before making a provider call:
+For an all-task production attempt, first freeze a diversity-balanced batch
+plan. The planner excludes only hash-checked candidates from a run with a
+passing official sanity report, ranks generation and editing tasks separately
+using public-input complexity proxies, and distributes every stratum across
+small batches:
+
+```powershell
+.\.venv\Scripts\cadrig.exe benchmark cadgenbench plan-batches `
+  --dataset-dir C:/path/to/cadgenbench-data `
+  --completed-run results/cadgenbench/readiness-verified `
+  --output results/cadgenbench/production-batches/plan.json `
+  --model gemini/gemini-3.1-pro-preview --target-batch-size 6 `
+  --max-tokens-per-task 80000 --max-tokens-per-call 16000 `
+  --max-iter 5 --max-duration 600 --reasoning-effort low `
+  --input-usd-per-million <rate> --output-usd-per-million <rate>
+
+.\.venv\Scripts\cadrig.exe benchmark cadgenbench run-batch `
+  results/cadgenbench/production-batches/plan.json batch-01
+```
+
+`run-batch` verifies the plan and dataset fingerprints before delegating to the
+resumable scheduler. Each batch has its own exact token reservation and
+conservative all-output cost ceiling. After a batch, retain valid candidates,
+classify failures, make only generic harness fixes with regression tests, rerun
+failed fixtures in a separate repair cohort, and compose the replacements
+before admitting the next batch. Complexity bands are planning heuristics based
+only on public input size, drawing-view count, and editing-language signals;
+they are not private benchmark labels or predicted CAD scores.
+
+For a single production cohort, use the lower-level resumable scheduler. It
+runs fixtures sequentially in isolated attempt directories, strictly validates
+each STEP, and reserves the complete per-task cap before making a provider call:
 
 ```powershell
 .\.venv\Scripts\cadrig.exe benchmark cadgenbench cohort --all `

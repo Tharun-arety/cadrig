@@ -101,8 +101,12 @@ Across all real runs, CADRIG has attempted 12 unique public fixtures and obtaine
 a strict-valid candidate for each. These public candidate-only runs do not have
 access to private ground-truth metrics and are not reported as scored results.
 The 12 eligible candidates were merged by the atomic composer and all 12 passed
-a second strict verification in `readiness-12-composed-002`. The automated
-suite currently contains 88 passing tests.
+a second strict verification in `readiness-12-composed-002`. A fingerprinted
+production plan now partitions the remaining 69 fixtures into twelve cohorts of
+five or six tasks. Every cohort mixes generation and editing tasks and contains
+simple, moderate and complex public-input heuristic bands. This planning
+metadata is not a claim about private benchmark difficulty or accuracy. The
+automated suite currently contains 92 passing tests.
 
 These results demonstrate pipeline viability, not statistical benchmark quality
 or state-of-the-art performance.
@@ -149,19 +153,25 @@ automatically regenerates the combined harness evaluation.
 
 The next evaluation sequence is:
 
-1. Admit the 69 unattempted public fixtures in resumable, budgeted batches using
-   the low-reasoning, 16k-per-call policy and strict completion gate.
-2. Apply the invalid-STEP mesh fallback only when the supplied source BREP fails
+1. Admit the 69 unattempted public fixtures through immutable plan
+   `production-batches-002`, one five- or six-task cohort at a time, using the
+   low-reasoning, 16k-per-call policy and strict completion gate.
+2. After every cohort, preserve strict-valid outputs, classify failures, add
+   only generic fixes and regression tests, and compose separately rerun
+   replacements before admitting the next cohort.
+3. Apply the invalid-STEP mesh fallback only when the supplied source BREP fails
    validation and a watertight sidecar exists; retain this path in provenance.
-3. Compose the new cohorts with the 12-candidate verified staging run.
-4. Strictly validate all 81 outputs, package and submit the first official
+4. Compose the new cohorts with the 12-candidate verified staging run.
+5. Strictly validate all 81 outputs, package and submit the first official
    external score.
-5. Resume paired model and kernel portability experiments after the first score.
+6. Resume paired model and kernel portability experiments after the first score.
 
 ## 8. Limitations
 
 - Only 12 unique real public fixtures have been executed, although all 12 now
   have strict-valid candidates.
+- The simple/moderate/complex batch labels are deterministic public-input
+  heuristics, not validated predictors of private benchmark difficulty.
 - No official leaderboard score has been obtained.
 - The FreeCAD experience remains an alpha adapter rather than a mature product.
 - The mesh fallback emits a faceted BREP and has been exercised on only one

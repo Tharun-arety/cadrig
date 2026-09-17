@@ -142,6 +142,34 @@ def build_parser() -> argparse.ArgumentParser:
         "--data-repo", default="HuggingAI4Engineering/cadgenbench-data"
     )
 
+    benchmark_plan = cadgenbench_commands.add_parser(
+        "plan-batches", help="create a deterministic diversity-balanced production plan"
+    )
+    benchmark_plan.add_argument("--dataset-dir", type=Path, required=True)
+    benchmark_plan.add_argument("--completed-run", type=Path, required=True)
+    benchmark_plan.add_argument("--output", type=Path, required=True)
+    benchmark_plan.add_argument("--model", required=True)
+    benchmark_plan.add_argument("--target-batch-size", type=int, default=8)
+    benchmark_plan.add_argument(
+        "--backend", choices=("build123d", "cadquery"), default="build123d"
+    )
+    benchmark_plan.add_argument("--max-tokens-per-task", type=int, default=80_000)
+    benchmark_plan.add_argument("--max-tokens-per-call", type=int, default=16_000)
+    benchmark_plan.add_argument("--max-iter", type=int, default=5)
+    benchmark_plan.add_argument("--max-duration", type=float, default=600)
+    benchmark_plan.add_argument(
+        "--reasoning-effort", choices=("minimal", "low", "medium", "high"), default="low"
+    )
+    benchmark_plan.add_argument("--input-usd-per-million", type=float)
+    benchmark_plan.add_argument("--output-usd-per-million", type=float)
+
+    benchmark_batch_run = cadgenbench_commands.add_parser(
+        "run-batch", help="run or resume one immutable batch from a saved plan"
+    )
+    benchmark_batch_run.add_argument("plan", type=Path)
+    benchmark_batch_run.add_argument("batch_id")
+    benchmark_batch_run.add_argument("--cohort-dir", type=Path)
+
     benchmark_matrix = cadgenbench_commands.add_parser(
         "matrix", help="run paired fixture cohorts across models and CAD kernels"
     )
@@ -218,10 +246,12 @@ def build_parser() -> argparse.ArgumentParser:
 
 def _run_cadgenbench_command(args: argparse.Namespace) -> int:
     from cadcopilot.benchmarks.cadgenbench import (
+        CadgenbenchBatchPlanConfig,
         CadgenbenchCohortConfig,
         CadgenbenchMatrixConfig,
         CadgenbenchRunConfig,
         compose_runs,
+        create_batch_plan,
         evaluate_harness,
         load_model_pricing,
         package_run,
@@ -229,10 +259,52 @@ def _run_cadgenbench_command(args: argparse.Namespace) -> int:
         run_cohort,
         run_matrix,
         run_official_baseline,
+        run_planned_batch,
         verify_run,
     )
 
     try:
+        if args.benchmark_command == "plan-batches":
+            plan = create_batch_plan(
+                CadgenbenchBatchPlanConfig(
+                    dataset_dir=args.dataset_dir,
+                    completed_run=args.completed_run,
+                    output=args.output,
+                    model=args.model,
+                    target_batch_size=args.target_batch_size,
+                    backend=args.backend,
+                    max_tokens_per_task=args.max_tokens_per_task,
+                    max_tokens_per_call=args.max_tokens_per_call,
+                    max_iterations=args.max_iter,
+                    max_duration=args.max_duration,
+                    reasoning_effort=args.reasoning_effort,
+                    input_usd_per_million=args.input_usd_per_million,
+                    output_usd_per_million=args.output_usd_per_million,
+                )
+            )
+            print(json.dumps({"status": "planned", **plan["summary"], "plan_id": plan["plan_id"]}, indent=2))
+            return 0
+
+        if args.benchmark_command == "run-batch":
+            result = run_planned_batch(
+                args.plan, args.batch_id, cohort_dir=args.cohort_dir, cwd=Path.cwd()
+            )
+            print(
+                json.dumps(
+                    {
+                        "status": result.status,
+                        "cohort_dir": str(result.cohort_dir),
+                        "completed": result.completed,
+                        "failed": result.failed,
+                        "pending": result.pending,
+                        "total_tokens": result.total_tokens,
+                        "cost_usd": result.cost_usd,
+                    },
+                    indent=2,
+                )
+            )
+            return 0 if result.status == "completed" else 1
+
         if args.benchmark_command == "compose":
             result = compose_runs(
                 tuple(args.sources),
