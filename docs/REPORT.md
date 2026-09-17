@@ -90,7 +90,7 @@ weak validity, incomplete traces, or missing cost evidence.
 
 | Metric family | Operational definition |
 | --- | --- |
-| Portability | Distinct observed model and kernel identifiers; demonstrated only with two or more configurations |
+| Portability | Distinct observed model and kernel identifiers; demonstrated only when the same task is valid and traced under two or more configurations |
 | Workload | Tasks, attempts, valid-task rate, retried tasks and additional attempts |
 | Observability | Attempt-level trace, verification and candidate-hash coverage |
 | Execution and repair | Turns, code executions, execution success, failed-execution repair opportunities and successful repairs |

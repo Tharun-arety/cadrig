@@ -71,10 +71,10 @@ def _ordinary_run(tmp_path: Path) -> Path:
     return run
 
 
-def _cohort(tmp_path: Path) -> Path:
-    cohort = tmp_path / "cohort"
-    attempt_run = cohort / ".attempts" / "201" / "002" / "run"
-    _write(attempt_run / "201" / "trace.json", _trace())
+def _cohort(tmp_path: Path, *, task_id: str = "201", name: str = "cohort") -> Path:
+    cohort = tmp_path / name
+    attempt_run = cohort / ".attempts" / task_id / "002" / "run"
+    _write(attempt_run / task_id / "trace.json", _trace())
     _write(
         cohort / "cohort.json",
         {
@@ -84,7 +84,7 @@ def _cohort(tmp_path: Path) -> Path:
                 "reasoning_effort": "low",
             },
             "tasks": {
-                "201": {
+                task_id: {
                     "status": "completed",
                     "attempts": [
                         {
@@ -97,7 +97,7 @@ def _cohort(tmp_path: Path) -> Path:
                         {
                             "attempt_id": "002",
                             "status": "completed",
-                            "run_dir": ".attempts\\201\\002\\run",
+                            "run_dir": f".attempts\\{task_id}\\002\\run",
                             "usage": {
                                 "trace_found": True,
                                 "prompt_tokens": 10,
@@ -156,14 +156,21 @@ def test_cohort_evaluation_reports_retries_cost_and_missing_evidence(tmp_path: P
 
 def test_combined_evaluation_only_claims_observed_portability(tmp_path: Path) -> None:
     single = evaluate_harness([_ordinary_run(tmp_path)])
-    combined = evaluate_harness([tmp_path / "ordinary", _cohort(tmp_path)])
+    unpaired = evaluate_harness([tmp_path / "ordinary", _cohort(tmp_path)])
+    paired = evaluate_harness(
+        [tmp_path / "ordinary", _cohort(tmp_path, task_id="101", name="paired-cohort")]
+    )
 
     assert single["portability"]["model_portability_demonstrated"] is False
     assert single["portability"]["kernel_portability_demonstrated"] is False
-    assert combined["portability"]["models"] == ["model/a", "model/b"]
-    assert combined["portability"]["kernels"] == ["build123d", "cadquery"]
-    assert combined["portability"]["model_portability_demonstrated"] is True
-    assert combined["portability"]["kernel_portability_demonstrated"] is True
+    assert unpaired["portability"]["models"] == ["model/a", "model/b"]
+    assert unpaired["portability"]["kernels"] == ["build123d", "cadquery"]
+    assert unpaired["portability"]["model_portability_demonstrated"] is False
+    assert unpaired["portability"]["kernel_portability_demonstrated"] is False
+    assert paired["portability"]["model_paired_valid_task_ids"] == ["101"]
+    assert paired["portability"]["kernel_paired_valid_task_ids"] == ["101"]
+    assert paired["portability"]["model_portability_demonstrated"] is True
+    assert paired["portability"]["kernel_portability_demonstrated"] is True
 
 
 def test_harness_eval_cli_writes_atomic_json(

@@ -212,8 +212,9 @@ create a leaderboard ZIP:
 `harness-eval` emits a metric vector rather than a composite score. It reports
 observed model/kernel diversity, validation and trace coverage, retries,
 execution repair, latency distributions, tokens, and cost when explicit rates
-were recorded. Portability is marked demonstrated only when the supplied runs
-contain at least two distinct models or kernels.
+were recorded. Portability is marked demonstrated only when the same task has a
+valid candidate and trace under at least two distinct models or kernels;
+unpaired configuration diversity is reported as observed evidence only.
 
 Production packaging requires official sanity validation and publication
 consent, hashes each verified candidate, and atomically self-checks the final

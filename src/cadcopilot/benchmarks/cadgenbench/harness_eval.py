@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import math
 import statistics
-from collections import Counter
+from collections import Counter, defaultdict
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -244,6 +244,23 @@ def _failure_taxonomy(records: list[dict[str, Any]]) -> dict[str, int]:
     return dict(sorted(failures.items()))
 
 
+def _paired_successful_tasks(records: list[dict[str, Any]], field: str) -> list[str]:
+    configurations_by_task: defaultdict[str, set[str]] = defaultdict(set)
+    for record in records:
+        configuration = record.get(field)
+        if (
+            isinstance(configuration, str)
+            and record.get("valid_candidate") is True
+            and record.get("trace_found") is True
+        ):
+            configurations_by_task[str(record["task_id"])].add(configuration)
+    return sorted(
+        task_id
+        for task_id, configurations in configurations_by_task.items()
+        if len(configurations) >= 2
+    )
+
+
 def evaluate_harness(run_dirs: list[Path] | tuple[Path, ...]) -> dict[str, Any]:
     """Evaluate operational harness evidence from ordinary runs or cohorts."""
 
@@ -289,6 +306,8 @@ def evaluate_harness(run_dirs: list[Path] | tuple[Path, ...]) -> dict[str, Any]:
     }
     models = sorted({str(record["model"]) for record in records if record.get("model")})
     backends = sorted({str(record["backend"]) for record in records if record.get("backend")})
+    paired_model_tasks = _paired_successful_tasks(records, "model")
+    paired_kernel_tasks = _paired_successful_tasks(records, "backend")
     trace_count = sum(record.get("trace_found") is True for record in attempts)
     verification_count = sum(record.get("verification_found") is True for record in attempts)
     hash_count = sum(record.get("candidate_hash_found") is True for record in attempts)
@@ -330,10 +349,14 @@ def evaluate_harness(run_dirs: list[Path] | tuple[Path, ...]) -> dict[str, Any]:
         "portability": {
             "models": models,
             "model_count": len(models),
-            "model_portability_demonstrated": len(models) >= 2,
+            "model_paired_valid_task_count": len(paired_model_tasks),
+            "model_paired_valid_task_ids": paired_model_tasks,
+            "model_portability_demonstrated": bool(paired_model_tasks),
             "kernels": backends,
             "kernel_count": len(backends),
-            "kernel_portability_demonstrated": len(backends) >= 2,
+            "kernel_paired_valid_task_count": len(paired_kernel_tasks),
+            "kernel_paired_valid_task_ids": paired_kernel_tasks,
+            "kernel_portability_demonstrated": bool(paired_kernel_tasks),
         },
         "workload": {
             "task_count": len(task_keys),
