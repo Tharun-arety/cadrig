@@ -295,14 +295,20 @@ def evaluate_harness(run_dirs: list[Path] | tuple[Path, ...]) -> dict[str, Any]:
         sources.append({"path": str(source), "type": source_type})
 
     attempts = [record for record in records if record.get("attempt_id") is not None]
-    task_keys = {(record["source"], record["task_id"]) for record in records}
-    attempts_by_task = Counter((record["source"], record["task_id"]) for record in attempts)
+    task_ids = {str(record["task_id"]) for record in records}
+    attempts_by_task_configuration = Counter(
+        (
+            str(record["task_id"]),
+            record.get("model"),
+            record.get("backend"),
+            record.get("reasoning_effort"),
+        )
+        for record in attempts
+    )
     traces = [record["trace"] for record in attempts if record.get("trace")]
     usages = [_mapping(record.get("usage")) for record in attempts]
-    valid_task_keys = {
-        (record["source"], record["task_id"])
-        for record in records
-        if record.get("valid_candidate")
+    valid_task_ids = {
+        str(record["task_id"]) for record in records if record.get("valid_candidate")
     }
     models = sorted({str(record["model"]) for record in records if record.get("model")})
     backends = sorted({str(record["backend"]) for record in records if record.get("backend")})
@@ -330,11 +336,9 @@ def evaluate_harness(run_dirs: list[Path] | tuple[Path, ...]) -> dict[str, Any]:
         for record in attempts
         if _number(record.get("wall_duration_seconds")) is not None
     ]
-    task_tokens: Counter[tuple[str, str]] = Counter()
+    task_tokens: Counter[str] = Counter()
     for record, usage in zip(attempts, usages, strict=True):
-        task_tokens[(record["source"], record["task_id"])] += _nonnegative_int(
-            usage.get("total_tokens")
-        )
+        task_tokens[str(record["task_id"])] += _nonnegative_int(usage.get("total_tokens"))
     stopped_reasons = Counter(
         str(trace["stopped_reason"])
         for trace in traces
@@ -359,12 +363,16 @@ def evaluate_harness(run_dirs: list[Path] | tuple[Path, ...]) -> dict[str, Any]:
             "kernel_portability_demonstrated": bool(paired_kernel_tasks),
         },
         "workload": {
-            "task_count": len(task_keys),
+            "task_count": len(task_ids),
             "attempt_count": len(attempts),
-            "completed_valid_task_count": len(valid_task_keys),
-            "valid_task_rate": _ratio(len(valid_task_keys), len(task_keys)),
-            "retried_task_count": sum(count > 1 for count in attempts_by_task.values()),
-            "retry_attempt_count": sum(max(count - 1, 0) for count in attempts_by_task.values()),
+            "completed_valid_task_count": len(valid_task_ids),
+            "valid_task_rate": _ratio(len(valid_task_ids), len(task_ids)),
+            "retried_task_count": sum(
+                count > 1 for count in attempts_by_task_configuration.values()
+            ),
+            "retry_attempt_count": sum(
+                max(count - 1, 0) for count in attempts_by_task_configuration.values()
+            ),
         },
         "observability": {
             "trace_count": trace_count,

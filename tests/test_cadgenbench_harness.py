@@ -152,6 +152,8 @@ def test_agent_wrapper_copies_mesh_sidecar_and_adds_generic_guidance(
 
     assert (work_dir / "input.mesh.npz").read_bytes() == b"mesh"
     assert "Kernel fallback available" in str(captured["description"])
+    assert "Imported STEP compatibility notes" in str(captured["description"])
+    assert "GeomType.CYLINDER" in str(captured["description"])
     assert "fixture" not in str(captured["description"]).lower()
     assert captured["validation_passed"] is False
 

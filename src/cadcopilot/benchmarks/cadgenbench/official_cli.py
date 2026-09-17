@@ -31,6 +31,24 @@ _TOKEN_CAP_ENV = "CADCOPILOT_ATTEMPT_TOKEN_CAP"
 _USAGE_LEDGER_ENV = "CADCOPILOT_PROVIDER_USAGE_PATH"
 _validation_state = threading.local()
 
+_STEP_EDIT_GUIDANCE = """
+
+Imported STEP compatibility notes:
+- `geom_type` is a `GeomType` enum, not a string. Compare with values such as
+  `GeomType.CYLINDER`, `GeomType.PLANE`, or use `str(face.geom_type)` while
+  inspecting unknown geometry.
+- If Build123d's `export_step` rejects an otherwise valid imported or modified
+  shape, use the operation-neutral atomic fallback:
+
+```python
+from cadcopilot.benchmarks.cadgenbench.step_io import robust_export_step
+print("STEP export method:", robust_export_step(shape, "output.step"))
+```
+
+This helper only writes the BREP you provide; it does not select features,
+repair topology, or perform the requested edit.
+"""
+
 _MESH_FALLBACK_GUIDANCE = """
 
 Kernel fallback available: this editing input includes `input.mesh.npz` because
@@ -100,11 +118,15 @@ def _run_agent_with_mesh_sidecars(
 ) -> AgentResult:
     _validation_state.passed = False
     sidecars: list[Path] = []
+    has_step_input = False
     for source in input_files or []:
         if source.suffix.lower() in {".step", ".stp"}:
+            has_step_input = True
             sidecar = source.with_name(f"{source.stem}.mesh.npz")
             if sidecar.is_file():
                 sidecars.append(sidecar)
+    if has_step_input:
+        task_description += _STEP_EDIT_GUIDANCE
     if sidecars:
         if work_dir is None:
             work_dir = Path(tempfile.mkdtemp(prefix="cadgenbench_agent_"))

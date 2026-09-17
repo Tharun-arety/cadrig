@@ -114,7 +114,19 @@ succeeded; each of the three observed repair opportunities recovered, while two
 traces ended through the strict agent-completion path and four retained valid
 candidates at the turn limit. The six candidates were atomically combined with
 the previous 12 and passed double strict verification in
-`readiness-18-composed-001`. The automated suite currently contains 93 passing
+`readiness-18-composed-001`.
+
+The second six-task cohort initially produced five valid candidates. Fixture
+205 exhausted its first attempt without output because the agent compared
+Build123d geometry enums with string literals and Build123d could not re-export
+the imported BREP, although direct OpenCascade transfer succeeded. Generic
+enum guidance and an operation-neutral atomic STEP fallback enabled a bounded
+repair attempt to identify and fill the two target holes. Across the original
+and repair cohorts, all six tasks are valid after seven attempts, 202,270
+tokens, and $0.635510. Cross-cohort evaluation now groups matching task IDs and
+execution configurations as retries rather than inflating the task count.
+The resulting candidates passed double strict verification in
+`readiness-24-composed-001`. The automated suite currently contains 96 passing
 tests.
 
 These results demonstrate pipeline viability, not statistical benchmark quality
@@ -162,7 +174,7 @@ automatically regenerates the combined harness evaluation.
 
 The next evaluation sequence is:
 
-1. Continue admitting the remaining 63 unattempted public fixtures through immutable plan
+1. Continue admitting the remaining 57 unattempted public fixtures through immutable plan
    `production-batches-002`, one five- or six-task cohort at a time, using the
    low-reasoning, 16k-per-call policy and strict completion gate.
 2. After every cohort, preserve strict-valid outputs, classify failures, add
@@ -177,7 +189,7 @@ The next evaluation sequence is:
 
 ## 8. Limitations
 
-- Only 18 unique real public fixtures have been executed, although all 18 now
+- Only 24 unique real public fixtures have been executed, although all 24 now
   have strict-valid candidates.
 - The simple/moderate/complex batch labels are deterministic public-input
   heuristics, not validated predictors of private benchmark difficulty.

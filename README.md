@@ -223,6 +223,9 @@ separate review turn confirms that the latest successful candidate is valid,
 watertight and mesh-renderable. Editing tasks with an invalid source STEP may
 use a supplied watertight mesh sidecar through a bounded terminal-feature
 fallback; the agent still selects the operation axis, side and distance.
+Editing prompts also document Build123d's enum-based geometry types and expose
+an operation-neutral atomic STEP exporter that falls back to OpenCascade's
+direct writer when Build123d cannot serialize an otherwise usable BREP.
 
 For paired harness experiments, run the identical fixtures through an explicit
 model × kernel matrix. Every cell is an independently resumable cohort, and the

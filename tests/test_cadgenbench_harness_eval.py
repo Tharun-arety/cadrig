@@ -173,6 +173,21 @@ def test_combined_evaluation_only_claims_observed_portability(tmp_path: Path) ->
     assert paired["portability"]["kernel_portability_demonstrated"] is True
 
 
+def test_same_task_repair_across_cohorts_is_one_retried_workload(tmp_path: Path) -> None:
+    original = _cohort(tmp_path, task_id="205", name="original")
+    repair = _cohort(tmp_path, task_id="205", name="repair")
+
+    evaluation = evaluate_harness([original, repair])
+
+    assert evaluation["workload"]["task_count"] == 1
+    assert evaluation["workload"]["attempt_count"] == 4
+    assert evaluation["workload"]["completed_valid_task_count"] == 1
+    assert evaluation["workload"]["valid_task_rate"] == 1.0
+    assert evaluation["workload"]["retried_task_count"] == 1
+    assert evaluation["workload"]["retry_attempt_count"] == 3
+    assert evaluation["usage"]["tokens_per_task"]["count"] == 1
+
+
 def test_harness_eval_cli_writes_atomic_json(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:

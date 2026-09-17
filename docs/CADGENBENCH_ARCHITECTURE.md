@@ -373,6 +373,13 @@ Initial implementations:
 - `FreeCADWorkerBackend`: native editing experiments and product integration.
 - `CadQueryBackend`: comparison/fallback backend.
 
+The benchmark compatibility layer includes an atomic STEP writer for imported
+or modified BReps. It first uses the Build123d exporter and, on serialization
+failure, transfers the exact supplied shape through OpenCascade
+`STEPControl_Writer`. This fallback performs no feature selection, topology
+repair, or task operation; it only prevents a frontend serialization mismatch
+from discarding otherwise usable geometry.
+
 ### `ModelProvider`
 
 Provider-specific streaming, retries and thought-signature handling remain
