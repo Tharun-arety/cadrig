@@ -126,7 +126,7 @@ and repair cohorts, all six tasks are valid after seven attempts, 202,270
 tokens, and $0.635510. Cross-cohort evaluation now groups matching task IDs and
 execution configurations as retries rather than inflating the task count.
 The resulting candidates passed double strict verification in
-`readiness-24-composed-001`. The automated suite currently contains 96 passing
+`readiness-24-composed-001`. The automated suite currently contains 97 passing
 tests.
 
 The third six-task cohort completed without a task-level retry: all six outputs
@@ -159,6 +159,19 @@ retried task, two within-trace repair opportunities, two successful repairs,
 and the abandoned attempt as `abandoned` plus `missing_trace`. The composed
 six-candidate set passed both strict verification stages. The campaign now has
 42 unique strict-valid public fixtures.
+
+The sixth cohort initially produced five strict-valid candidates. Fixture 242,
+a symmetric mounting-boss length edit, generated an invalid multi-solid BRep
+and then exposed a generic limitation in the terminal mesh fallback: it could
+move only one end per invocation and accepted only an NPZ input. The helper now
+supports `side="both"`, moving each terminal outward by the caller-selected
+distance while preserving the existing axis, distance and topology checks. A
+separate retry exercised that path on the real fixture. Across seven attempts,
+all six tasks are strict-valid after 208,968 tokens and $0.633306. The composed
+set passed both strict gates; combined evidence records five repair
+opportunities, four recoveries, complete trace coverage, and the original
+failed task attempt. The campaign now has 48 unique strict-valid fixtures, and
+the automated suite contains 97 passing tests.
 
 These results demonstrate pipeline viability, not statistical benchmark quality
 or state-of-the-art performance.
@@ -205,14 +218,15 @@ automatically regenerates the combined harness evaluation.
 
 The next evaluation sequence is:
 
-1. Continue admitting the remaining 39 unattempted public fixtures through immutable plan
+1. Continue admitting the remaining 33 unattempted public fixtures through immutable plan
    `production-batches-002`, one five- or six-task cohort at a time, using the
    low-reasoning, 16k-per-call policy and strict completion gate.
 2. After every cohort, preserve strict-valid outputs, classify failures, add
    only generic fixes and regression tests, and compose separately rerun
    replacements before admitting the next cohort.
-3. Apply the invalid-STEP mesh fallback only when the supplied source BREP fails
-   validation and a watertight sidecar exists; retain this path in provenance.
+3. Apply the mesh fallback only when a watertight sidecar exists and either the
+   source BREP is invalid or direct terminal edits repeatedly produce invalid
+   geometry; retain this path in provenance.
 4. Compose the new cohorts with the 12-candidate verified staging run.
 5. Strictly validate all 81 outputs, package and submit the first official
    external score.
@@ -220,14 +234,14 @@ The next evaluation sequence is:
 
 ## 8. Limitations
 
-- Only 42 unique real public fixtures have been executed, although all 42 now
+- Only 48 unique real public fixtures have been executed, although all 48 now
   have strict-valid candidates.
 - The simple/moderate/complex batch labels are deterministic public-input
   heuristics, not validated predictors of private benchmark difficulty.
 - No official leaderboard score has been obtained.
 - The FreeCAD experience remains an alpha adapter rather than a mature product.
-- The mesh fallback emits a faceted BREP and has been exercised on only one
-  invalid-source editing fixture; its semantic accuracy remains unscored.
+- The mesh fallback emits a faceted BREP and has been exercised on only two
+  terminal editing fixtures; its semantic accuracy remains unscored.
 - The readiness cohort's exact historical cost is a lower bound because one
   rejected 7,593-token response predates the provider-usage sidecar fix.
 - Provider-side billing may still include transport failures or provider retries

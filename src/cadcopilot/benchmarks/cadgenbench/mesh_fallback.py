@@ -13,13 +13,14 @@ def _validate_terminal_edit(
     normalized_side = side.lower()
     if normalized_axis not in {"x", "y", "z"}:
         raise ValueError("axis must be x, y, or z")
-    if normalized_side not in {"min", "max"}:
-        raise ValueError("side must be min or max")
+    if normalized_side not in {"min", "max", "both"}:
+        raise ValueError("side must be min, max, or both")
     if distance_mm <= 0:
         raise ValueError("distance_mm must be positive")
     if target_triangles < 100:
         raise ValueError("target_triangles must be at least 100")
-    return {"x": 0, "y": 1, "z": 2}[normalized_axis], -1.0 if normalized_side == "min" else 1.0
+    direction = {"min": -1.0, "max": 1.0, "both": 0.0}[normalized_side]
+    return {"x": 0, "y": 1, "z": 2}[normalized_axis], direction
 
 
 def extend_terminal_mesh_to_step(
@@ -31,12 +32,14 @@ def extend_terminal_mesh_to_step(
     distance_mm: float,
     target_triangles: int = 12_000,
 ) -> dict[str, Any]:
-    """Extend one terminal feature cap and emit a sewn, strict-valid faceted STEP.
+    """Extend one or both terminal feature caps into a strict-valid faceted STEP.
 
     This fallback is intended for an editing input whose STEP BREP cannot be
     oriented or meshed, but whose supplied CADGenBench ``*.mesh.npz`` sidecar is
     watertight. The caller must select the feature's axis and terminal side from
-    task evidence; no fixture identifiers or shape-specific dimensions are used.
+    task evidence; ``both`` moves each terminal by ``distance_mm`` in opposite
+    directions for a symmetric extension. No fixture identifiers or
+    shape-specific dimensions are used.
     """
     axis_index, direction = _validate_terminal_edit(
         axis, side, distance_mm, target_triangles
@@ -67,15 +70,29 @@ def extend_terminal_mesh_to_step(
         vertices = data["vertices"].astype(float, copy=True)
         triangles = data["triangles"].astype(int, copy=True)
 
-    terminal = (
-        float(vertices[:, axis_index].min())
-        if direction < 0
-        else float(vertices[:, axis_index].max())
-    )
-    mask = np.isclose(vertices[:, axis_index], terminal, atol=1.0e-6)
-    if int(mask.sum()) < 3:
-        raise RuntimeError("terminal feature cap has fewer than three vertices")
-    vertices[mask, axis_index] += direction * distance_mm
+    if direction == 0:
+        min_mask = np.isclose(
+            vertices[:, axis_index], float(vertices[:, axis_index].min()), atol=1.0e-6
+        )
+        max_mask = np.isclose(
+            vertices[:, axis_index], float(vertices[:, axis_index].max()), atol=1.0e-6
+        )
+        if int(min_mask.sum()) < 3 or int(max_mask.sum()) < 3:
+            raise RuntimeError("each terminal feature cap must have at least three vertices")
+        vertices[min_mask, axis_index] -= distance_mm
+        vertices[max_mask, axis_index] += distance_mm
+        moved_vertex_count = int(min_mask.sum() + max_mask.sum())
+    else:
+        terminal = (
+            float(vertices[:, axis_index].min())
+            if direction < 0
+            else float(vertices[:, axis_index].max())
+        )
+        mask = np.isclose(vertices[:, axis_index], terminal, atol=1.0e-6)
+        if int(mask.sum()) < 3:
+            raise RuntimeError("terminal feature cap has fewer than three vertices")
+        vertices[mask, axis_index] += direction * distance_mm
+        moved_vertex_count = int(mask.sum())
 
     edited = trimesh.Trimesh(vertices=vertices, faces=triangles, process=False)
     if not edited.is_watertight or not edited.is_winding_consistent:
@@ -130,7 +147,7 @@ def extend_terminal_mesh_to_step(
         "axis": axis.lower(),
         "side": side.lower(),
         "distance_mm": distance_mm,
-        "moved_vertex_count": int(mask.sum()),
+        "moved_vertex_count": moved_vertex_count,
         "triangle_count": len(triangles),
         "size_bytes": destination.stat().st_size,
     }

@@ -51,22 +51,22 @@ repair topology, or perform the requested edit.
 
 _MESH_FALLBACK_GUIDANCE = """
 
-Kernel fallback available: this editing input includes `input.mesh.npz` because
-its source STEP may be invalid. If the STEP reports invalid or unorientable and
-the requested operation is to lengthen a terminal boss, do not boolean the
-invalid STEP. Select the feature axis and min/max terminal side from the task
-and render, then call:
+Kernel fallback available: this editing input includes `input.mesh.npz`. If the
+source STEP is invalid, or a direct BRep terminal-length edit repeatedly creates
+invalid or unorientable output, select the feature axis and terminal side from
+the task and render, then call:
 
 ```python
 from cadcopilot.benchmarks.cadgenbench.mesh_fallback import extend_terminal_mesh_to_step
 print(extend_terminal_mesh_to_step(
     "input.mesh.npz", "output.step",
-    axis="<x|y|z>", side="<min|max>", distance_mm=<requested positive distance>,
+    axis="<x|y|z>", side="<min|max|both>", distance_mm=<positive distance per side>,
 ))
 ```
 
-Replace every placeholder from the current task and render. No operation values
-are supplied by the harness.
+Use `both` only for a symmetric extension; it moves each terminal outward by
+`distance_mm`. Replace every placeholder from the current task and render. No
+operation values are supplied by the harness.
 """
 
 

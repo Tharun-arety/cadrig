@@ -112,6 +112,7 @@ Solids:     1
 def test_terminal_mesh_edit_contract_rejects_unsafe_parameters() -> None:
     assert _validate_terminal_edit("x", "min", 10, 12_000) == (0, -1.0)
     assert _validate_terminal_edit("Z", "MAX", 2.5, 100) == (2, 1.0)
+    assert _validate_terminal_edit("y", "both", 5, 500) == (1, 0.0)
     with pytest.raises(ValueError, match="axis"):
         _validate_terminal_edit("q", "min", 10, 12_000)
     with pytest.raises(ValueError, match="side"):
