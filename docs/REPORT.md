@@ -213,6 +213,14 @@ combined evidence records three repair opportunities and two recoveries. The
 campaign now has 71 unique strict-valid fixtures, and the automated suite has
 98 passing tests.
 
+The eleventh cohort completed all five tasks after 118,865 tokens and
+$0.360480. All candidates passed independent strict sanity validation. Across
+18 turns and 15 executions, 13 executions succeeded; the one observed repair
+opportunity recovered. Three traces ended with accepted `done` and two reached
+`max_iterations` with candidates retained. Trace, verification and candidate
+hash coverage were complete, so no task-level retry or code change was needed.
+The campaign now has 76 unique strict-valid fixtures.
+
 These results demonstrate pipeline viability, not statistical benchmark quality
 or state-of-the-art performance.
 
@@ -258,7 +266,7 @@ automatically regenerates the combined harness evaluation.
 
 The next evaluation sequence is:
 
-1. Continue admitting the remaining 10 unattempted public fixtures through immutable plan
+1. Admit the remaining 5 unattempted public fixtures through immutable plan
    `production-batches-002`, one five- or six-task cohort at a time, using the
    low-reasoning, 16k-per-call policy and strict completion gate.
 2. After every cohort, preserve strict-valid outputs, classify failures, add
@@ -274,7 +282,7 @@ The next evaluation sequence is:
 
 ## 8. Limitations
 
-- Only 71 unique real public fixtures have been executed, although all 71 now
+- Only 76 unique real public fixtures have been executed, although all 76 now
   have strict-valid candidates.
 - The simple/moderate/complex batch labels are deterministic public-input
   heuristics, not validated predictors of private benchmark difficulty.
