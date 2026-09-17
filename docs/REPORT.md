@@ -138,6 +138,16 @@ valid candidate had already been preserved. No geometry repair or harness
 change was required. The cumulative `readiness-30-composed-001` set passed both
 strict verification stages with 30 candidates.
 
+The fourth six-task cohort also completed without a task-level rerun. All six
+outputs passed strict sanity validation after 178,279 tokens and $0.518398.
+Across 27 turns and 24 executions, 21 executions succeeded. Fixture 243
+exercised best-candidate preservation: a failed first program was repaired on
+the next turn, later refinements regressed, and the harness retained the valid
+repaired candidate. This produced one observed repair opportunity and one
+successful repair. Trace, verification and candidate-hash coverage remained
+complete. The campaign therefore has 36 unique strict-valid public fixtures;
+semantic benchmark quality remains unknown until official scoring.
+
 These results demonstrate pipeline viability, not statistical benchmark quality
 or state-of-the-art performance.
 
@@ -183,7 +193,7 @@ automatically regenerates the combined harness evaluation.
 
 The next evaluation sequence is:
 
-1. Continue admitting the remaining 51 unattempted public fixtures through immutable plan
+1. Continue admitting the remaining 45 unattempted public fixtures through immutable plan
    `production-batches-002`, one five- or six-task cohort at a time, using the
    low-reasoning, 16k-per-call policy and strict completion gate.
 2. After every cohort, preserve strict-valid outputs, classify failures, add
@@ -198,7 +208,7 @@ The next evaluation sequence is:
 
 ## 8. Limitations
 
-- Only 30 unique real public fixtures have been executed, although all 30 now
+- Only 36 unique real public fixtures have been executed, although all 36 now
   have strict-valid candidates.
 - The simple/moderate/complex batch labels are deterministic public-input
   heuristics, not validated predictors of private benchmark difficulty.
