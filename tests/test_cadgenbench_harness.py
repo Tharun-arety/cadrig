@@ -308,6 +308,9 @@ def test_agent_wrapper_copies_mesh_sidecar_and_adds_generic_guidance(
     assert "Imported STEP compatibility notes" in str(captured["description"])
     assert "GeomType.CYLINDER" in str(captured["description"])
     assert "Never write a dummy" in str(captured["description"])
+    assert "executable Python block before any explanation" in str(
+        captured["description"]
+    )
     assert "Treat the requested edit as local" in str(captured["description"])
     assert "at most two distinct execution turns" in str(captured["description"])
     assert "translate_planar_annulus_mesh_region_to_step" in str(
@@ -551,6 +554,42 @@ def test_provider_usage_ledger_persists_rejected_over_cap_call(
             "unclassified_tokens": 0,
         }
     ]
+
+
+def test_token_cap_stops_gracefully_after_a_strict_valid_candidate(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("CADCOPILOT_ATTEMPT_TOKEN_CAP", "100")
+    monkeypatch.setattr(official_cli._validation_state, "ever_passed", True, raising=False)
+    monkeypatch.setattr(official_cli._validation_state, "budget_stop", False, raising=False)
+    client = SimpleNamespace(
+        model="test/model",
+        _cadcopilot_consumed_tokens=95,
+        count_tokens=lambda _messages: 10,
+    )
+
+    completion = official_cli._complete_with_cap(client, [], max_tokens=20)
+
+    assert completion.content.startswith("[DONE]")
+    assert completion.total_tokens == 0
+    assert official_cli._validation_state.budget_stop is True
+    assert official_cli._has_done_signal_after_review(completion.content) is True
+
+
+def test_token_cap_still_fails_closed_without_a_valid_candidate(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("CADCOPILOT_ATTEMPT_TOKEN_CAP", "100")
+    monkeypatch.setattr(official_cli._validation_state, "ever_passed", False, raising=False)
+    monkeypatch.setattr(official_cli._validation_state, "budget_stop", False, raising=False)
+    client = SimpleNamespace(
+        model="test/model",
+        _cadcopilot_consumed_tokens=95,
+        count_tokens=lambda _messages: 10,
+    )
+
+    with pytest.raises(RuntimeError, match="token cap exhausted"):
+        official_cli._complete_with_cap(client, [], max_tokens=20)
 
 
 @pytest.mark.parametrize(

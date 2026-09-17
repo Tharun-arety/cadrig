@@ -275,6 +275,21 @@ feature inspection. The autonomous repair produced a strict-valid, watertight
 candidate after 88,508 tokens and $0.248446. The composed three-task improvement
 batch passed independent strict validation with all three candidates valid.
 
+The second improvement cohort targeted generation fixtures 123 and 126 plus
+editing fixture 207. All three passed independent strict validation after
+245,659 tokens and $1.109798. The generation replacements contain 65 and 90
+faces; fixture 126 replaced an alpha trace that repeated a single box with a
+multi-feature model. Fixture 207 produced a 286-face local three-boss edit and
+retained it across a later failed correction. This cohort also exposed two
+efficiency/control-flow failures: fixture 123 twice consumed the 16k completion
+allowance without executable code, and fixture 207 attempted another model
+call after 113,516 tokens even though it already had a strict-valid candidate.
+Prompts now require code before explanation with bounded prose. At the attempt
+boundary, CADRIG emits an observable zero-token stop only when a prior candidate
+has passed strict validation; without such a candidate it continues to fail
+closed. This prevents budget exhaustion from converting known-good work into a
+task exception.
+
 These results demonstrate pipeline viability, not statistical benchmark quality
 or state-of-the-art performance.
 

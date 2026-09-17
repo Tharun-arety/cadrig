@@ -13,7 +13,7 @@ from typing import Any
 
 from cadgenbench.baseline import _cli as baseline_cli
 from cadgenbench.baseline import agent
-from cadgenbench.baseline.llm import LLMClient
+from cadgenbench.baseline.llm import CompletionResult, LLMClient
 from cadgenbench.baseline.types import AgentResult
 from cadgenbench.cli import main
 
@@ -43,6 +43,9 @@ Artifact safety contract:
 - Do not repeat unchanged code merely to reach the iteration limit or satisfy
   the completion protocol. Use each turn to inspect, diagnose, or improve the
   geometry.
+- Put the executable Python block before any explanation and keep non-code text
+  below 200 words. Never consume a full turn narrating a plan without code;
+  implement the first measurable geometry version immediately.
 """
 
 _GENERATION_COMPLETENESS_GUIDANCE = """
@@ -202,7 +205,10 @@ def _has_done_signal_after_review(text: str) -> bool:
         return False
     if _extract_code_blocks(text):
         return False
-    return getattr(_validation_state, "passed", False) is True
+    return (
+        getattr(_validation_state, "passed", False) is True
+        or getattr(_validation_state, "budget_stop", False) is True
+    )
 
 
 def _validation_feedback_passed(auto_text: str, auto_iso: bytes | None) -> bool:
@@ -220,6 +226,8 @@ def _auto_validate_and_render_strict(*args: Any, **kwargs: Any) -> tuple[str, by
     _validation_state.passed = execution_succeeded and _validation_feedback_passed(
         auto_text, auto_iso
     )
+    if _validation_state.passed:
+        _validation_state.ever_passed = True
     return auto_text, auto_iso
 
 
@@ -231,6 +239,8 @@ def _run_agent_with_mesh_sidecars(
     **kwargs: Any,
 ) -> AgentResult:
     _validation_state.passed = False
+    _validation_state.ever_passed = False
+    _validation_state.budget_stop = False
     sidecars: list[Path] = []
     has_step_input = False
     for source in input_files or []:
@@ -355,6 +365,7 @@ def _save_with_trace(self: AgentResult, output_dir: str | Path) -> Path:
             "total_duration_seconds": round(self.total_duration_s, 3),
             "completed": self.completed,
             "stopped_reason": self.stopped_reason,
+            "budget_stop": getattr(_validation_state, "budget_stop", False) is True,
             "turns": turns,
         },
     )
@@ -430,6 +441,19 @@ def _complete_with_cap(
     except (TypeError, ValueError) as exc:
         raise RuntimeError(f"invalid {_TOKEN_CAP_ENV} budget configuration") from exc
     if allowance <= 0:
+        if getattr(_validation_state, "ever_passed", False) is True:
+            _validation_state.budget_stop = True
+            return CompletionResult(
+                content=(
+                    "[DONE]\nToken budget reached; preserve the last "
+                    "strict-valid candidate."
+                ),
+                prompt_tokens=0,
+                completion_tokens=0,
+                total_tokens=0,
+                model=str(getattr(self, "model", "unknown")),
+                raw=None,
+            )
         raise RuntimeError(
             f"attempt token cap exhausted before model call ({consumed}+{prompt_tokens} "
             f">= {token_cap})"
