@@ -206,6 +206,13 @@ def build_parser() -> argparse.ArgumentParser:
     )
     benchmark_harness_eval.add_argument("run_dirs", nargs="+", type=Path)
     benchmark_harness_eval.add_argument("-o", "--output", type=Path)
+    benchmark_compose = cadgenbench_commands.add_parser(
+        "compose", help="atomically merge disjoint candidates from multiple runs"
+    )
+    benchmark_compose.add_argument("sources", nargs="+", type=Path)
+    benchmark_compose.add_argument("-o", "--output", required=True, type=Path)
+    benchmark_compose.add_argument("--dataset-dir", type=Path)
+    benchmark_compose.add_argument("--sanity-script", type=Path)
     return parser
 
 
@@ -214,6 +221,7 @@ def _run_cadgenbench_command(args: argparse.Namespace) -> int:
         CadgenbenchCohortConfig,
         CadgenbenchMatrixConfig,
         CadgenbenchRunConfig,
+        compose_runs,
         evaluate_harness,
         load_model_pricing,
         package_run,
@@ -225,6 +233,26 @@ def _run_cadgenbench_command(args: argparse.Namespace) -> int:
     )
 
     try:
+        if args.benchmark_command == "compose":
+            result = compose_runs(
+                tuple(args.sources),
+                args.output,
+                dataset_dir=args.dataset_dir,
+                sanity_script=args.sanity_script,
+            )
+            print(
+                json.dumps(
+                    {
+                        "status": "composed",
+                        "output": str(result.output_dir),
+                        "tasks": result.task_count,
+                        "strict_valid": result.verification.valid_count,
+                    },
+                    indent=2,
+                )
+            )
+            return 0
+
         if args.benchmark_command == "run":
             config = CadgenbenchRunConfig(
                 output_root=args.output_root,

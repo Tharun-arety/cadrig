@@ -257,6 +257,13 @@ Editing is not generation with an extra file in the prompt.
    `0.4`, so a candidate is not complete merely because it remains valid.
 8. Revalidate, canonicalize and export one `output.step`.
 
+Some public editing inputs include a valid watertight mesh sidecar even when the
+source STEP cannot be oriented or tessellated. In that case CADRIG may expose a
+bounded mesh-domain terminal-feature operation to the agent. The agent selects
+axis, side and extent from task evidence; the kernel then sews the edited mesh
+into a closed faceted BREP. This path is recorded as a fallback and still must
+pass the same strict STEP gate. It is not evidence of native parametric editing.
+
 The editing critic uses a change mask and a preservation mask. This avoids the
 common failure where an edit is technically present but unrelated geometry has
 drifted or disappeared.

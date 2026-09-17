@@ -4,9 +4,14 @@ from __future__ import annotations
 
 import hashlib
 import os
+import re
+import shutil
+import tempfile
+import threading
 from pathlib import Path
 from typing import Any
 
+from cadgenbench.baseline import _cli as baseline_cli
 from cadgenbench.baseline import agent
 from cadgenbench.baseline.llm import LLMClient
 from cadgenbench.baseline.types import AgentResult
@@ -16,11 +21,35 @@ from .common import read_json, write_json_atomic
 from .compat import completion_token_allowance, extract_code_blocks_tolerant
 
 _strict_extract_code_blocks = agent.extract_code_blocks
+_strict_has_done_signal = agent._has_done_signal
+_strict_auto_validate_and_render = agent._auto_validate_and_render
+_strict_run_agent = agent.run_agent
 _strict_agent_result_save = AgentResult.save
 _strict_llm_complete = LLMClient.complete
 _recovered_code_hashes: set[str] = set()
 _TOKEN_CAP_ENV = "CADCOPILOT_ATTEMPT_TOKEN_CAP"
 _USAGE_LEDGER_ENV = "CADCOPILOT_PROVIDER_USAGE_PATH"
+_validation_state = threading.local()
+
+_MESH_FALLBACK_GUIDANCE = """
+
+Kernel fallback available: this editing input includes `input.mesh.npz` because
+its source STEP may be invalid. If the STEP reports invalid or unorientable and
+the requested operation is to lengthen a terminal boss, do not boolean the
+invalid STEP. Select the feature axis and min/max terminal side from the task
+and render, then call:
+
+```python
+from cadcopilot.benchmarks.cadgenbench.mesh_fallback import extend_terminal_mesh_to_step
+print(extend_terminal_mesh_to_step(
+    "input.mesh.npz", "output.step",
+    axis="<x|y|z>", side="<min|max>", distance_mm=<requested positive distance>,
+))
+```
+
+Replace every placeholder from the current task and render. No operation values
+are supplied by the harness.
+"""
 
 
 def _sha256_text(value: str) -> str:
@@ -33,6 +62,63 @@ def _extract_code_blocks(text: str, lang: str = "python") -> list[str]:
     if recovered != strict:
         _recovered_code_hashes.update(_sha256_text(code) for code in recovered)
     return recovered
+
+
+def _has_done_signal_after_review(text: str) -> bool:
+    """Accept completion only after separate review of a strict-valid candidate."""
+    if not _strict_has_done_signal(text):
+        return False
+    if _extract_code_blocks(text):
+        return False
+    return getattr(_validation_state, "passed", False) is True
+
+
+def _validation_feedback_passed(auto_text: str, auto_iso: bytes | None) -> bool:
+    valid = re.search(r"(?m)^Valid:\s+True\s*$", auto_text) is not None
+    watertight = re.search(r"(?m)^Watertight:\s+True\s*$", auto_text) is not None
+    has_error = "Validation error:" in auto_text or "Render failed:" in auto_text
+    return valid and watertight and not has_error and auto_iso is not None
+
+
+def _auto_validate_and_render_strict(*args: Any, **kwargs: Any) -> tuple[str, bytes | None]:
+    """Remember whether the latest executed candidate cleared the mesh gate."""
+    auto_text, auto_iso = _strict_auto_validate_and_render(*args, **kwargs)
+    last_execution = args[1] if len(args) > 1 else kwargs.get("last_exe")
+    execution_succeeded = getattr(last_execution, "success", False) is True
+    _validation_state.passed = execution_succeeded and _validation_feedback_passed(
+        auto_text, auto_iso
+    )
+    return auto_text, auto_iso
+
+
+def _run_agent_with_mesh_sidecars(
+    task_description: str,
+    *args: Any,
+    input_files: list[Path] | None = None,
+    work_dir: Path | None = None,
+    **kwargs: Any,
+) -> AgentResult:
+    _validation_state.passed = False
+    sidecars: list[Path] = []
+    for source in input_files or []:
+        if source.suffix.lower() in {".step", ".stp"}:
+            sidecar = source.with_name(f"{source.stem}.mesh.npz")
+            if sidecar.is_file():
+                sidecars.append(sidecar)
+    if sidecars:
+        if work_dir is None:
+            work_dir = Path(tempfile.mkdtemp(prefix="cadgenbench_agent_"))
+        work_dir.mkdir(parents=True, exist_ok=True)
+        for sidecar in sidecars:
+            shutil.copy2(sidecar, work_dir / sidecar.name)
+        task_description += _MESH_FALLBACK_GUIDANCE
+    return _strict_run_agent(
+        task_description,
+        *args,
+        input_files=input_files,
+        work_dir=work_dir,
+        **kwargs,
+    )
 
 
 def _save_with_trace(self: AgentResult, output_dir: str | Path) -> Path:
@@ -165,6 +251,10 @@ def _complete_with_cap(
 
 
 agent.extract_code_blocks = _extract_code_blocks
+agent._has_done_signal = _has_done_signal_after_review
+agent._auto_validate_and_render = _auto_validate_and_render_strict
+agent.run_agent = _run_agent_with_mesh_sidecars
+baseline_cli.run_agent = _run_agent_with_mesh_sidecars
 AgentResult.save = _save_with_trace
 LLMClient.complete = _complete_with_cap
 

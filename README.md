@@ -189,6 +189,12 @@ bound. Provider-side billing can still differ when a provider charges failed or
 retried requests, so production accounts should also have a provider spending
 limit.
 
+Agent completion is not authoritative: `[DONE]` is accepted only after a
+separate review turn confirms that the latest successful candidate is valid,
+watertight and mesh-renderable. Editing tasks with an invalid source STEP may
+use a supplied watertight mesh sidecar through a bounded terminal-feature
+fallback; the agent still selects the operation axis, side and distance.
+
 For paired harness experiments, run the identical fixtures through an explicit
 model × kernel matrix. Every cell is an independently resumable cohort, and the
 matrix automatically writes `harness-evaluation.json`:
@@ -225,6 +231,10 @@ create a leaderboard ZIP:
 .\.venv\Scripts\cadrig.exe benchmark cadgenbench harness-eval <run-or-cohort> `
   -o results/cadgenbench/harness-evaluation.json
 
+.\.venv\Scripts\cadrig.exe benchmark cadgenbench compose <run-a> <cohort-b> `
+  -o results/cadgenbench/composed `
+  --dataset-dir C:/path/to/cadgenbench-data
+
 .\.venv\Scripts\cadrig.exe benchmark cadgenbench package <run-dir> `
   --require-sanity `
   --submitter "Your Name" --name "CADRIG Alpha" --agree
@@ -236,6 +246,10 @@ execution repair, latency distributions, tokens, and cost when explicit rates
 were recorded. Portability is marked demonstrated only when the same task has a
 valid candidate and trace under at least two distinct models or kernels;
 unpaired configuration diversity is reported as observed evidence only.
+
+`compose` copies only direct task candidates, preserves candidate hashes and
+available traces, rejects conflicting duplicates, and performs strict
+verification before atomically publishing the combined run directory.
 
 Production packaging requires official sanity validation and publication
 consent, hashes each verified candidate, and atomically self-checks the final

@@ -46,6 +46,9 @@ must report unsupported tasks truthfully.
 - [x] Hashed candidate verification and atomic self-validating submission ZIPs.
 - [x] Resumable fixture scheduling with conservative cross-run token/cost admission.
 - [x] Provider-usage sidecars that retain responses rejected by the task cap.
+- [x] Strict completion gate requiring valid, watertight, mesh-renderable output.
+- [x] Agent-selected mesh-domain fallback for an invalid editing source STEP.
+- [x] Atomic multi-cohort candidate composition with duplicate conflict checks.
 - [x] First-class harness evaluation for portability, recovery, observability,
   latency, tokens and explicit-rate cost without a composite score.
 - [x] Resumable paired model-by-kernel calibration matrices with isolated cell

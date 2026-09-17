@@ -1,5 +1,6 @@
 """CADGenBench runner, verification and submission packaging."""
 
+from .compose import CompositionResult, compose_runs
 from .harness_eval import evaluate_harness
 from .matrix import (
     CadgenbenchMatrixConfig,
@@ -19,10 +20,12 @@ __all__ = [
     "CadgenbenchMatrixConfig",
     "CadgenbenchRunConfig",
     "CohortResult",
+    "CompositionResult",
     "MatrixResult",
     "ModelPricing",
     "PackageResult",
     "VerificationReport",
+    "compose_runs",
     "evaluate_harness",
     "load_model_pricing",
     "package_run",

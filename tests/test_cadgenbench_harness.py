@@ -14,6 +14,7 @@ from cadcopilot.benchmarks.cadgenbench.compat import (
     extract_code_blocks_tolerant,
 )
 from cadcopilot.benchmarks.cadgenbench.dataset import find_sanity_script
+from cadcopilot.benchmarks.cadgenbench.mesh_fallback import _validate_terminal_edit
 from cadcopilot.benchmarks.cadgenbench.package import package_run
 from cadcopilot.benchmarks.cadgenbench.runner import (
     CadgenbenchRunConfig,
@@ -53,6 +54,106 @@ def test_tolerant_extractor_prefers_valid_truncated_final_block() -> None:
 def test_tolerant_extractor_rejects_invalid_truncated_python() -> None:
     text = "analysis\n```python\nvalue = ("
     assert extract_code_blocks_tolerant(text, "python", _strict_fence_extractor) == []
+
+
+def test_done_signal_requires_review_after_candidate_changing_code() -> None:
+    official_cli._validation_state.passed = True
+    assert official_cli._has_done_signal_after_review("The candidate is valid. [DONE]") is True
+    assert (
+        official_cli._has_done_signal_after_review(
+            "```python\nprint('write output.step')\n```\n[DONE]"
+        )
+        is False
+    )
+    assert official_cli._has_done_signal_after_review("```python\nprint('[DONE]')\n```") is False
+
+    official_cli._validation_state.passed = False
+    assert official_cli._has_done_signal_after_review("[DONE]") is False
+
+
+def test_validation_feedback_requires_valid_watertight_render(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    valid = """### Auto-validation of output.step
+Valid:      True
+Watertight: True
+Solids:     1
+"""
+    assert official_cli._validation_feedback_passed(valid, b"png") is True
+    assert official_cli._validation_feedback_passed(valid, None) is False
+    assert (
+        official_cli._validation_feedback_passed(
+            valid + "Validation error: face missing triangulation", b"png"
+        )
+        is False
+    )
+    assert (
+        official_cli._validation_feedback_passed(
+            valid.replace("Watertight: True", "Watertight: False"), b"png"
+        )
+        is False
+    )
+
+    monkeypatch.setattr(
+        official_cli,
+        "_strict_auto_validate_and_render",
+        lambda *_args, **_kwargs: (valid, b"png"),
+    )
+    official_cli._auto_validate_and_render_strict(
+        Path("."), SimpleNamespace(success=False)
+    )
+    assert official_cli._validation_state.passed is False
+    official_cli._auto_validate_and_render_strict(
+        Path("."), SimpleNamespace(success=True)
+    )
+    assert official_cli._validation_state.passed is True
+
+
+def test_terminal_mesh_edit_contract_rejects_unsafe_parameters() -> None:
+    assert _validate_terminal_edit("x", "min", 10, 12_000) == (0, -1.0)
+    assert _validate_terminal_edit("Z", "MAX", 2.5, 100) == (2, 1.0)
+    with pytest.raises(ValueError, match="axis"):
+        _validate_terminal_edit("q", "min", 10, 12_000)
+    with pytest.raises(ValueError, match="side"):
+        _validate_terminal_edit("x", "near", 10, 12_000)
+    with pytest.raises(ValueError, match="distance_mm"):
+        _validate_terminal_edit("x", "min", 0, 12_000)
+    with pytest.raises(ValueError, match="target_triangles"):
+        _validate_terminal_edit("x", "min", 10, 99)
+
+
+def test_agent_wrapper_copies_mesh_sidecar_and_adds_generic_guidance(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source = tmp_path / "inputs" / "input.step"
+    source.parent.mkdir()
+    source.write_text("step", encoding="utf-8")
+    sidecar = source.with_name("input.mesh.npz")
+    sidecar.write_bytes(b"mesh")
+    captured: dict[str, object] = {}
+
+    def run_agent(description: str, *args: object, **kwargs: object) -> object:
+        captured.update(
+            description=description,
+            args=args,
+            kwargs=kwargs,
+            validation_passed=official_cli._validation_state.passed,
+        )
+        return object()
+
+    monkeypatch.setattr(official_cli, "_strict_run_agent", run_agent)
+    work_dir = tmp_path / "work"
+
+    official_cli._run_agent_with_mesh_sidecars(
+        "Lengthen the terminal boss by 10 mm.",
+        input_files=[source],
+        work_dir=work_dir,
+    )
+
+    assert (work_dir / "input.mesh.npz").read_bytes() == b"mesh"
+    assert "Kernel fallback available" in str(captured["description"])
+    assert "fixture" not in str(captured["description"]).lower()
+    assert captured["validation_passed"] is False
 
 
 def test_completion_token_allowance_reserves_prompt_before_call() -> None:

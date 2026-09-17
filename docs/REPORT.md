@@ -84,14 +84,25 @@ tokens; a rejected over-cap call reported 7,593 additional tokens that the
 original trace format did not retain. The accounting path has since been fixed
 to persist such calls before acceptance or rejection.
 
-The cohort's 70% validity did not clear the declared 80% readiness gate, so the
-remaining production batch was not launched. The failures were two generation
-tasks that exhausted their allowances without a valid candidate and one editing
-task whose candidate failed mesh triangulation after the agent signalled done.
-These public candidate-only runs do not have access to private ground-truth
-metrics and therefore are not reported as scored results. Across all real runs,
-CADRIG has attempted 12 unique public fixtures and obtained strict-valid
-candidates for nine. The automated suite currently contains 82 passing tests.
+The cohort's initial 70% validity did not clear the declared 80% readiness gate,
+so the remaining production batch was not launched. A bounded repair campaign
+then recovered the two generation failures with low reasoning and a 16k
+per-call limit. The editing failure exposed an invalid source STEP plus a
+watertight public mesh sidecar. CADRIG now gives the agent a deterministic
+mesh-domain terminal-feature operation and reconstructs a sewn faceted BREP;
+the agent selected the axis, side and 10 mm extent from the task and render.
+
+The repair and methodology-audit campaign retained six attempts, including two
+failed fixture-240 diagnostics and one valid but superseded prompted-example
+run. It recorded 165,729 tokens and $0.471998 at the declared rates. An unbiased
+rerun first inspected the model, then independently selected X/min/10 mm and
+passed the strict gate. All three eligible replacements are therefore valid.
+Across all real runs, CADRIG has attempted 12 unique public fixtures and obtained
+a strict-valid candidate for each. These public candidate-only runs do not have
+access to private ground-truth metrics and are not reported as scored results.
+The 12 eligible candidates were merged by the atomic composer and all 12 passed
+a second strict verification in `readiness-12-composed-002`. The automated
+suite currently contains 88 passing tests.
 
 These results demonstrate pipeline viability, not statistical benchmark quality
 or state-of-the-art performance.
@@ -138,23 +149,23 @@ automatically regenerates the combined harness evaluation.
 
 The next evaluation sequence is:
 
-1. Add final-candidate validation feedback so mesh failures can enter a bounded
-   repair turn instead of failing only after agent completion.
-2. Rerun only the three failed readiness fixtures with a tighter per-call output
-   limit and a lower-reasoning generation policy.
-3. Require that repair cohort to pass three of three before admitting further
-   production batches.
-4. Freeze the validated configuration and execute all 81 public CADGen-Bench
-   inputs in resumable, budgeted batches.
-5. Strictly validate, package and submit the first official external score.
-6. Resume paired model and kernel portability experiments after the first score.
+1. Admit the 69 unattempted public fixtures in resumable, budgeted batches using
+   the low-reasoning, 16k-per-call policy and strict completion gate.
+2. Apply the invalid-STEP mesh fallback only when the supplied source BREP fails
+   validation and a watertight sidecar exists; retain this path in provenance.
+3. Compose the new cohorts with the 12-candidate verified staging run.
+4. Strictly validate all 81 outputs, package and submit the first official
+   external score.
+5. Resume paired model and kernel portability experiments after the first score.
 
 ## 8. Limitations
 
-- Only 12 unique real public fixtures have been executed; nine have strict-valid
-  candidates.
+- Only 12 unique real public fixtures have been executed, although all 12 now
+  have strict-valid candidates.
 - No official leaderboard score has been obtained.
 - The FreeCAD experience remains an alpha adapter rather than a mature product.
+- The mesh fallback emits a faceted BREP and has been exercised on only one
+  invalid-source editing fixture; its semantic accuracy remains unscored.
 - The readiness cohort's exact historical cost is a lower bound because one
   rejected 7,593-token response predates the provider-usage sidecar fix.
 - Provider-side billing may still include transport failures or provider retries
