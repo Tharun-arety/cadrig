@@ -524,33 +524,34 @@ def test_provider_usage_ledger_persists_rejected_over_cap_call(
 ) -> None:
     ledger = tmp_path / "provider_usage.json"
     monkeypatch.setenv("CADCOPILOT_PROVIDER_USAGE_PATH", str(ledger))
-    monkeypatch.setenv("CADCOPILOT_ATTEMPT_TOKEN_CAP", "100")
+    monkeypatch.setenv("CADCOPILOT_ATTEMPT_TOKEN_CAP", "10000")
+    monkeypatch.setattr(official_cli._validation_state, "ever_passed", False, raising=False)
     client = SimpleNamespace(
-        _cadcopilot_consumed_tokens=80,
-        count_tokens=lambda _messages: 5,
+        _cadcopilot_consumed_tokens=4_000,
+        count_tokens=lambda _messages: 500,
     )
 
     def complete(_client: object, _messages: object, **kwargs: object) -> object:
-        assert kwargs["max_tokens"] == 15
-        return SimpleNamespace(prompt_tokens=5, completion_tokens=16, total_tokens=21)
+        assert kwargs["max_tokens"] == 1_404
+        return SimpleNamespace(prompt_tokens=500, completion_tokens=5_601, total_tokens=6_101)
 
     monkeypatch.setattr(official_cli, "_strict_llm_complete", complete)
 
-    with pytest.raises(RuntimeError, match="101 > 100"):
-        official_cli._complete_with_cap(client, [], max_tokens=20)
+    with pytest.raises(RuntimeError, match="10101 > 10000"):
+        official_cli._complete_with_cap(client, [], max_tokens=2_000)
 
     payload = json.loads(ledger.read_text(encoding="utf-8"))
-    assert payload["total_tokens"] == 21
-    assert payload["prompt_tokens"] == 5
-    assert payload["completion_tokens"] == 16
+    assert payload["total_tokens"] == 6_101
+    assert payload["prompt_tokens"] == 500
+    assert payload["completion_tokens"] == 5_601
     assert payload["call_count"] == 1
     assert payload["rejected_call_count"] == 1
     assert payload["calls"] == [
         {
             "accepted_by_attempt_cap": False,
-            "completion_tokens": 16,
-            "prompt_tokens": 5,
-            "total_tokens": 21,
+            "completion_tokens": 5_601,
+            "prompt_tokens": 500,
+            "total_tokens": 6_101,
             "unclassified_tokens": 0,
         }
     ]
@@ -574,6 +575,60 @@ def test_token_cap_stops_gracefully_after_a_strict_valid_candidate(
     assert completion.total_tokens == 0
     assert official_cli._validation_state.budget_stop is True
     assert official_cli._has_done_signal_after_review(completion.content) is True
+
+
+def test_prompt_margin_stops_before_an_estimation_boundary_call(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("CADCOPILOT_ATTEMPT_TOKEN_CAP", "10_000")
+    monkeypatch.setattr(official_cli._validation_state, "ever_passed", True, raising=False)
+    monkeypatch.setattr(official_cli._validation_state, "budget_stop", False, raising=False)
+    client = SimpleNamespace(
+        model="test/model",
+        _cadcopilot_consumed_tokens=4_000,
+        count_tokens=lambda _messages: 3_000,
+    )
+
+    def unexpected_call(*_args: object, **_kwargs: object) -> object:
+        raise AssertionError("provider must not be called inside the safety margin")
+
+    monkeypatch.setattr(official_cli, "_strict_llm_complete", unexpected_call)
+    completion = official_cli._complete_with_cap(client, [], max_tokens=3_000)
+
+    assert completion.total_tokens == 0
+    assert official_cli._validation_state.budget_stop is True
+
+
+def test_rejected_provider_overrun_preserves_prior_valid_candidate(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    ledger = tmp_path / "provider_usage.json"
+    monkeypatch.setenv("CADCOPILOT_PROVIDER_USAGE_PATH", str(ledger))
+    monkeypatch.setenv("CADCOPILOT_ATTEMPT_TOKEN_CAP", "10_000")
+    monkeypatch.setattr(official_cli._validation_state, "ever_passed", True, raising=False)
+    monkeypatch.setattr(official_cli._validation_state, "budget_stop", False, raising=False)
+    client = SimpleNamespace(
+        model="test/model",
+        _cadcopilot_consumed_tokens=1_000,
+        count_tokens=lambda _messages: 1_000,
+    )
+
+    def complete(_client: object, _messages: object, **kwargs: object) -> object:
+        assert kwargs["max_tokens"] == 3_904
+        return SimpleNamespace(
+            prompt_tokens=5_000,
+            completion_tokens=4_001,
+            total_tokens=9_001,
+        )
+
+    monkeypatch.setattr(official_cli, "_strict_llm_complete", complete)
+    completion = official_cli._complete_with_cap(client, [], max_tokens=8_000)
+
+    assert completion.total_tokens == 0
+    assert official_cli._validation_state.budget_stop is True
+    payload = json.loads(ledger.read_text(encoding="utf-8"))
+    assert payload["total_tokens"] == 9_001
+    assert payload["rejected_call_count"] == 1
 
 
 def test_token_cap_still_fails_closed_without_a_valid_candidate(

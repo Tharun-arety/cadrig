@@ -290,6 +290,19 @@ has passed strict validation; without such a candidate it continues to fail
 closed. This prevents budget exhaustion from converting known-good work into a
 task exception.
 
+The third improvement cohort targeted generation fixtures 136 and 150 plus
+editing fixture 230. All three candidates passed independent strict validation
+after 317,182 provider-accounted tokens and $1.388154. Fixture 136 produced
+eight consecutive executable refinements and a 47-face candidate; fixture 150
+produced a 63-face candidate but still had one near-16k plan-only response and
+one rejected final call whose provider-reported usage took the attempt 3,368
+tokens over its nominal cap. Fixture 230 completed a three-segment diameter edit
+with a 147-face candidate at 117,980 tokens. CADRIG now reserves an additional
+4,096-token prompt-estimation margin near the task boundary. A residual
+provider-reported overrun is recorded as rejected and converted to the same
+candidate-preserving terminal response only when earlier strict validity exists;
+otherwise it remains a hard failure.
+
 These results demonstrate pipeline viability, not statistical benchmark quality
 or state-of-the-art performance.
 

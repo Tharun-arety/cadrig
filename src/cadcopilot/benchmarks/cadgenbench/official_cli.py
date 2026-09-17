@@ -29,6 +29,7 @@ _strict_llm_complete = LLMClient.complete
 _recovered_code_hashes: set[str] = set()
 _TOKEN_CAP_ENV = "CADCOPILOT_ATTEMPT_TOKEN_CAP"
 _USAGE_LEDGER_ENV = "CADCOPILOT_PROVIDER_USAGE_PATH"
+_PROMPT_TOKEN_MARGIN = 4_096
 _validation_state = threading.local()
 _CANDIDATE_NAMES = ("output.step", "output.stp")
 
@@ -435,7 +436,7 @@ def _complete_with_cap(
         allowance = completion_token_allowance(
             token_cap=token_cap,
             consumed=consumed,
-            prompt_tokens=prompt_tokens,
+            prompt_tokens=prompt_tokens + _PROMPT_TOKEN_MARGIN,
             requested=requested,
         )
     except (TypeError, ValueError) as exc:
@@ -464,6 +465,19 @@ def _complete_with_cap(
     self._cadcopilot_consumed_tokens = new_total
     _record_provider_usage(completion, accepted=new_total <= token_cap)
     if new_total > token_cap:
+        if getattr(_validation_state, "ever_passed", False) is True:
+            _validation_state.budget_stop = True
+            return CompletionResult(
+                content=(
+                    "[DONE]\nProvider usage crossed the token boundary; reject "
+                    "this response and preserve the last strict-valid candidate."
+                ),
+                prompt_tokens=0,
+                completion_tokens=0,
+                total_tokens=0,
+                model=str(getattr(self, "model", "unknown")),
+                raw=None,
+            )
         raise RuntimeError(
             f"provider-reported usage exceeded attempt token cap ({new_total} > {token_cap})"
         )
