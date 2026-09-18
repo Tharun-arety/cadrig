@@ -129,7 +129,7 @@ def test_explicit_each_target_count_and_execution_evidence() -> None:
     )
     assert official_cli._explicit_each_target_count(task) == 4
     assert official_cli._explicit_each_target_count("Shorten the smaller bore.") is None
-    instance_evidence = """CADRIG_EDIT_INSTANCE index=1 center=(1,2,3)
+    instance_evidence = """CADRIG_EDIT_INSTANCE index=1 center=(1, 2, 3)
 CADRIG_EDIT_INSTANCE index=2 center=(4,5,6)
 CADRIG_EDIT_INSTANCE index=3 center=(7,8,9)
 CADRIG_EDIT_INSTANCE index=4 center=(10,11,12)
@@ -379,6 +379,71 @@ def test_planar_patch_translation_moves_only_seeded_component(
     assert result["moved_vertex_count"] == 4
 
 
+def test_oriented_mesh_regions_are_inspectable_and_seed_translatable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import numpy as np
+
+    vertices = np.asarray(
+        [
+            (1, 0, 0),
+            (1, 1, 0),
+            (1, 1, 1),
+            (1, 0, 1),
+            (10, 5, 0),
+            (10, 6, 0),
+            (10, 6, 1),
+            (10, 5, 1),
+        ],
+        dtype=float,
+    )
+    triangles = np.asarray([(0, 1, 2), (0, 2, 3), (4, 5, 6), (4, 6, 7)])
+    source = tmp_path / "input.mesh.npz"
+    np.savez(source, vertices=vertices, triangles=triangles)
+
+    regions = mesh_fallback.inspect_oriented_mesh_regions(
+        source,
+        normal_axis="x",
+        center_axis="x",
+        center_min_mm=0,
+        min_area_mm2=0.5,
+        normal_sign="positive",
+        bbox_long_axis="y",
+    )
+    assert [region["center"] for region in regions] == [
+        [1.0, 0.5, 0.5],
+        [10.0, 5.5, 0.5],
+    ]
+    assert all(region["triangle_count"] == 2 for region in regions)
+
+    captured: dict[str, object] = {}
+
+    def write_step(
+        edited_vertices: object,
+        edited_triangles: object,
+        destination: Path,
+        target_triangles: int,
+    ) -> tuple[int, int]:
+        captured["vertices"] = np.asarray(edited_vertices).copy()
+        return 4, 321
+
+    monkeypatch.setattr(mesh_fallback, "_write_faceted_step", write_step)
+    result = mesh_fallback.translate_oriented_mesh_regions_to_step(
+        source,
+        tmp_path / "output.step",
+        normal_axis="x",
+        seeds=[(1, 0.5, 0.5), (10, 5.5, 0.5)],
+        distance_mm=[2, -2],
+        seed_tolerance_mm=0.1,
+    )
+
+    edited = np.asarray(captured["vertices"])
+    assert np.allclose(edited[:4, 0], 3)
+    assert np.allclose(edited[4:, 0], 8)
+    assert result["moved_vertex_count"] == 8
+    assert len(result["selected_regions"]) == 2
+
+
 def test_agent_wrapper_copies_mesh_sidecar_and_adds_generic_guidance(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -421,6 +486,10 @@ def test_agent_wrapper_copies_mesh_sidecar_and_adds_generic_guidance(
         captured["description"]
     )
     assert "translate_planar_mesh_patch_to_step" in str(captured["description"])
+    assert "inspect_oriented_mesh_regions" in str(captured["description"])
+    assert "translate_oriented_mesh_regions_to_step" in str(
+        captured["description"]
+    )
     assert "fixture" not in str(captured["description"]).lower()
     assert captured["validation_passed"] is False
 

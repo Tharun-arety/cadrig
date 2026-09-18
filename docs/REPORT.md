@@ -318,7 +318,15 @@ a semantic acceptance contract, requires unique per-instance topology evidence,
 forbids inspection-only STEP exports, and restores the last accepted working
 candidate immediately after a rejected turn. Fixture 201 remains excluded from
 the replacement set until a repair satisfies the instruction; structural
-validity alone is no longer reported as success for this case.
+validity alone is no longer reported as success for this case. Two further
+agent retries also failed closed rather than publishing unsupported edits. Their
+traces motivated a generic mesh-region inspector that groups connected drafted
+or tessellated walls by orientation, side, area and bounding-box axis, plus a
+seeded translation fallback with per-region signed motion. On fixture 201 the
+inspector deterministically exposed four plausible wall regions and an
+operator-selected prototype passed the official validity gate, but that
+prototype is not admitted as an autonomous replacement because target-region
+interpretation remains unconfirmed.
 
 These results demonstrate pipeline viability, not statistical benchmark quality
 or state-of-the-art performance.

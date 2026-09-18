@@ -378,6 +378,292 @@ def translate_planar_mesh_patch_to_step(
     }
 
 
+def _oriented_mesh_components(
+    vertices: Any,
+    triangles: Any,
+    *,
+    normal_axis_index: int,
+    min_abs_normal: float,
+) -> list[dict[str, Any]]:
+    from collections import defaultdict, deque
+
+    import numpy as np
+
+    triangle_points = vertices[triangles]
+    cross = np.cross(
+        triangle_points[:, 1] - triangle_points[:, 0],
+        triangle_points[:, 2] - triangle_points[:, 0],
+    )
+    double_area = np.linalg.norm(cross, axis=1)
+    normals = cross / np.maximum(double_area[:, None], 1.0e-12)
+    candidate_indices = np.flatnonzero(
+        (double_area > 1.0e-12)
+        & (np.abs(normals[:, normal_axis_index]) >= min_abs_normal)
+    )
+
+    edge_owners: dict[tuple[int, int], list[int]] = defaultdict(list)
+    for triangle_index in candidate_indices:
+        triangle = triangles[int(triangle_index)]
+        for first, second in ((0, 1), (1, 2), (2, 0)):
+            edge = tuple(sorted((int(triangle[first]), int(triangle[second]))))
+            edge_owners[edge].append(int(triangle_index))
+    neighbors: dict[int, set[int]] = defaultdict(set)
+    for owners in edge_owners.values():
+        if len(owners) == 2:
+            neighbors[owners[0]].add(owners[1])
+            neighbors[owners[1]].add(owners[0])
+
+    remaining = {int(index) for index in candidate_indices}
+    components: list[dict[str, Any]] = []
+    triangle_centers = triangle_points.mean(axis=1)
+    while remaining:
+        seed = remaining.pop()
+        component = {seed}
+        queue = deque([seed])
+        while queue:
+            current = queue.popleft()
+            for neighbor in neighbors[current]:
+                if neighbor in remaining:
+                    remaining.remove(neighbor)
+                    component.add(neighbor)
+                    queue.append(neighbor)
+
+        indices = np.asarray(sorted(component), dtype=int)
+        vertex_indices = np.unique(triangles[indices])
+        component_points = vertices[vertex_indices]
+        weights = double_area[indices]
+        components.append(
+            {
+                "triangle_indices": indices,
+                "vertex_indices": vertex_indices,
+                "area": float(weights.sum() / 2.0),
+                "center": np.average(triangle_centers[indices], axis=0, weights=weights),
+                "normal": np.average(normals[indices], axis=0, weights=weights),
+                "bbox": np.ptp(component_points, axis=0),
+            }
+        )
+    return components
+
+
+def inspect_oriented_mesh_regions(
+    mesh_npz: str | Path,
+    *,
+    normal_axis: str,
+    min_abs_normal: float = 0.55,
+    center_axis: str | None = None,
+    center_min_mm: float | None = None,
+    center_max_mm: float | None = None,
+    min_area_mm2: float = 5.0,
+    normal_sign: str = "both",
+    bbox_long_axis: str | None = None,
+) -> list[dict[str, Any]]:
+    """Group connected mesh patches with a caller-selected normal orientation.
+
+    The result is a deterministic feature-discovery aid for repeated drafted,
+    filleted or tessellated walls that do not survive STEP exchange as simple
+    planar faces. Optional center bounds localize the search to a stated side of
+    the part. No region is inferred or edited automatically.
+    """
+    import numpy as np
+
+    normalized_normal_axis = normal_axis.lower()
+    if normalized_normal_axis not in {"x", "y", "z"}:
+        raise ValueError("normal_axis must be x, y, or z")
+    if not 0 < min_abs_normal <= 1:
+        raise ValueError("min_abs_normal must be in (0, 1]")
+    if min_area_mm2 <= 0:
+        raise ValueError("min_area_mm2 must be positive")
+    normalized_sign = normal_sign.lower()
+    if normalized_sign not in {"positive", "negative", "both"}:
+        raise ValueError("normal_sign must be positive, negative, or both")
+    if (center_min_mm is not None or center_max_mm is not None) and center_axis is None:
+        raise ValueError("center_axis is required when center bounds are used")
+    normalized_center_axis = center_axis.lower() if center_axis is not None else None
+    if normalized_center_axis not in {None, "x", "y", "z"}:
+        raise ValueError("center_axis must be x, y, or z")
+    normalized_bbox_axis = bbox_long_axis.lower() if bbox_long_axis is not None else None
+    if normalized_bbox_axis not in {None, "x", "y", "z"}:
+        raise ValueError("bbox_long_axis must be x, y, or z")
+    if (
+        center_min_mm is not None
+        and center_max_mm is not None
+        and center_min_mm > center_max_mm
+    ):
+        raise ValueError("center_min_mm must not exceed center_max_mm")
+
+    with np.load(Path(mesh_npz).resolve(), allow_pickle=False) as data:
+        if not {"vertices", "triangles"}.issubset(data.files):
+            raise ValueError("mesh sidecar must contain vertices and triangles")
+        vertices = data["vertices"].astype(float, copy=False)
+        triangles = data["triangles"].astype(int, copy=False)
+    axis_indices = {"x": 0, "y": 1, "z": 2}
+    components = _oriented_mesh_components(
+        vertices,
+        triangles,
+        normal_axis_index=axis_indices[normalized_normal_axis],
+        min_abs_normal=min_abs_normal,
+    )
+    center_axis_index = (
+        axis_indices[normalized_center_axis]
+        if normalized_center_axis is not None
+        else None
+    )
+    normal_axis_index = axis_indices[normalized_normal_axis]
+    bbox_axis_index = (
+        axis_indices[normalized_bbox_axis]
+        if normalized_bbox_axis is not None
+        else None
+    )
+    filtered = []
+    for component in components:
+        center = component["center"]
+        if component["area"] < min_area_mm2:
+            continue
+        normal_value = float(component["normal"][normal_axis_index])
+        if normalized_sign == "positive" and normal_value <= 0:
+            continue
+        if normalized_sign == "negative" and normal_value >= 0:
+            continue
+        if bbox_axis_index is not None:
+            bbox = component["bbox"]
+            other_sizes = [
+                float(value)
+                for index, value in enumerate(bbox)
+                if index != bbox_axis_index
+            ]
+            if float(bbox[bbox_axis_index]) < max(other_sizes):
+                continue
+        if center_axis_index is not None:
+            coordinate = float(center[center_axis_index])
+            if center_min_mm is not None and coordinate < center_min_mm:
+                continue
+            if center_max_mm is not None and coordinate > center_max_mm:
+                continue
+        filtered.append(component)
+    filtered.sort(
+        key=lambda component: (
+            -component["area"],
+            *(float(value) for value in component["center"]),
+        )
+    )
+    return [
+        {
+            "region_id": index,
+            "area_mm2": round(component["area"], 6),
+            "center": [round(float(value), 6) for value in component["center"]],
+            "normal": [round(float(value), 6) for value in component["normal"]],
+            "bbox": [round(float(value), 6) for value in component["bbox"]],
+            "triangle_count": len(component["triangle_indices"]),
+            "vertex_count": len(component["vertex_indices"]),
+        }
+        for index, component in enumerate(filtered)
+    ]
+
+
+def translate_oriented_mesh_regions_to_step(
+    mesh_npz: str | Path,
+    output_step: str | Path,
+    *,
+    normal_axis: str,
+    seeds: list[tuple[float, float, float]],
+    distance_mm: float | list[float],
+    min_abs_normal: float = 0.55,
+    seed_tolerance_mm: float = 5.0,
+    target_triangles: int = 12_000,
+) -> dict[str, Any]:
+    """Translate caller-selected connected oriented mesh regions along an axis.
+
+    ``distance_mm`` may be one signed translation shared by every seed or a
+    list containing one signed translation per seed. Selected regions must not
+    overlap, and the resulting mesh must remain watertight and orientable.
+    """
+    import numpy as np
+
+    normalized_axis = normal_axis.lower()
+    if normalized_axis not in {"x", "y", "z"}:
+        raise ValueError("normal_axis must be x, y, or z")
+    if not seeds or any(len(seed) != 3 for seed in seeds):
+        raise ValueError("seeds must contain one or more 3D centers")
+    if isinstance(distance_mm, list):
+        if len(distance_mm) != len(seeds):
+            raise ValueError("distance_mm list must contain one value per seed")
+        distances = [float(value) for value in distance_mm]
+    else:
+        distances = [float(distance_mm)] * len(seeds)
+    if any(value == 0 for value in distances):
+        raise ValueError("distance_mm values must be non-zero")
+    if not 0 < min_abs_normal <= 1:
+        raise ValueError("min_abs_normal must be in (0, 1]")
+    if seed_tolerance_mm <= 0:
+        raise ValueError("seed_tolerance_mm must be positive")
+    if target_triangles < 100:
+        raise ValueError("target_triangles must be at least 100")
+
+    source = Path(mesh_npz).resolve()
+    destination = Path(output_step).resolve()
+    with np.load(source, allow_pickle=False) as data:
+        if not {"vertices", "triangles"}.issubset(data.files):
+            raise ValueError("mesh sidecar must contain vertices and triangles")
+        vertices = data["vertices"].astype(float, copy=True)
+        triangles = data["triangles"].astype(int, copy=True)
+    axis_index = {"x": 0, "y": 1, "z": 2}[normalized_axis]
+    components = _oriented_mesh_components(
+        vertices,
+        triangles,
+        normal_axis_index=axis_index,
+        min_abs_normal=min_abs_normal,
+    )
+    if not components:
+        raise RuntimeError("no oriented mesh regions matched the selected normal")
+
+    centers = np.asarray([component["center"] for component in components])
+    selected_indices: list[int] = []
+    for seed in seeds:
+        seed_distances = np.linalg.norm(
+            centers - np.asarray(seed, dtype=float), axis=1
+        )
+        component_index = int(np.argmin(seed_distances))
+        if float(seed_distances[component_index]) > seed_tolerance_mm:
+            raise RuntimeError("no oriented mesh region is close enough to a seed")
+        if component_index in selected_indices:
+            raise RuntimeError("multiple seeds selected the same oriented mesh region")
+        selected_indices.append(component_index)
+
+    moved_vertex_sets: list[set[int]] = []
+    for component_index, distance in zip(selected_indices, distances, strict=True):
+        vertex_indices = components[component_index]["vertex_indices"]
+        current_set = {int(index) for index in vertex_indices}
+        if any(current_set & previous for previous in moved_vertex_sets):
+            raise RuntimeError("selected oriented mesh regions share boundary vertices")
+        moved_vertex_sets.append(current_set)
+        vertices[vertex_indices, axis_index] += distance
+    moved_indices = np.asarray(sorted(set().union(*moved_vertex_sets)), dtype=int)
+    triangle_count, size_bytes = _write_faceted_step(
+        vertices, triangles, destination, target_triangles
+    )
+    selected_regions = [
+        {
+            "center": [
+                round(float(value), 6) for value in components[index]["center"]
+            ],
+            "normal": [
+                round(float(value), 6) for value in components[index]["normal"]
+            ],
+            "area_mm2": round(float(components[index]["area"]), 6),
+        }
+        for index in selected_indices
+    ]
+    return {
+        "output_step": str(destination),
+        "normal_axis": normalized_axis,
+        "distance_mm": distances if isinstance(distance_mm, list) else distances[0],
+        "selected_regions": selected_regions,
+        "moved_vertex_count": len(moved_indices),
+        "triangle_count": triangle_count,
+        "size_bytes": size_bytes,
+    }
+
+
 def _write_faceted_step(
     vertices: Any,
     triangles: Any,
@@ -419,7 +705,7 @@ def _write_faceted_step(
         mesh.remove_duplicated_vertices()
         mesh.remove_unreferenced_vertices()
     if not mesh.is_watertight() or not mesh.is_orientable():
-        raise RuntimeError("decimated mesh is not watertight and orientable")
+        raise RuntimeError("output mesh is not watertight and orientable")
     vertices = np.asarray(mesh.vertices)
     triangles = np.asarray(mesh.triangles)
 

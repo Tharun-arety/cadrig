@@ -51,7 +51,8 @@ _EDIT_COUNT_RE = re.compile(
 )
 _EDIT_INSTANCE_RE = re.compile(
     r"(?m)^CADRIG_EDIT_INSTANCE\s+index=(\d+)\s+"
-    r"center=\((-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)\)\s*$"
+    r"center=\(\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*,\s*"
+    r"(-?\d+(?:\.\d+)?)\s*\)\s*$"
 )
 
 _ARTIFACT_SAFETY_GUIDANCE = """
@@ -275,6 +276,39 @@ print(translate_planar_mesh_patch_to_step(
 This moves only the edge-connected coplanar triangle component nearest the
 seed. Inspect and render the selected face before invoking it; no target face
 or operation value is inferred by the harness.
+
+For repeated drafted, filleted or tessellated walls that are not exposed as
+simple planar BRep faces, cluster connected mesh regions by their approximate
+normal direction and stated side of the part:
+
+```python
+from cadcopilot.benchmarks.cadgenbench.mesh_fallback import (
+    inspect_oriented_mesh_regions,
+    translate_oriented_mesh_regions_to_step,
+)
+regions = inspect_oriented_mesh_regions(
+    "input.mesh.npz", normal_axis="<x|y|z>",
+    center_axis="<x|y|z>", center_min_mm=<optional lower side bound>,
+    center_max_mm=<optional upper side bound>, min_area_mm2=<minimum patch area>,
+    normal_sign="<positive|negative|both>",
+    bbox_long_axis="<x|y|z if the task states one>",
+)
+print(regions)
+# After selecting one unique observed center per named feature instance:
+print(translate_oriented_mesh_regions_to_step(
+    "input.mesh.npz", "output.step", normal_axis="<x|y|z>",
+    seeds=[(<x>, <y>, <z>), ...],
+    distance_mm=<one signed value or one signed value per seed>,
+))
+```
+
+The inspector reports connected region centers, averaged normals, bounding
+boxes and areas. Choose seeds only after matching every qualifier in the task
+and rendered views. The translation fallback moves precisely the caller-seeded
+regions along the selected axis; it never chooses the regions or sign itself.
+For opposing walls, pass a distance list so each seed moves in its own signed
+direction. Start with restrictive side, normal-sign, long-axis and area filters
+instead of dumping every mesh region into the model context.
 """
 
 
