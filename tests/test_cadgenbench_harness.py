@@ -8,7 +8,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from cadcopilot.benchmarks.cadgenbench import mesh_fallback, official_cli
+from cadcopilot.benchmarks.cadgenbench import brep_fallback, mesh_fallback, official_cli
 from cadcopilot.benchmarks.cadgenbench.compat import (
     completion_token_allowance,
     extract_code_blocks_tolerant,
@@ -157,6 +157,147 @@ CADRIG_EDIT_INSTANCE index=4 center=(10,11,12)
     )
 
 
+def test_kernel_edit_signature_rejects_reexport_and_accepts_real_change(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class Point:
+        X = 10.0
+        Y = 20.0
+        Z = 30.0
+
+    class Shape:
+        volume = 1_000.0
+        area = 600.0
+
+        def __init__(self, face_areas: tuple[float, ...]) -> None:
+            self.face_areas = face_areas
+
+        def bounding_box(self) -> SimpleNamespace:
+            return SimpleNamespace(size=Point())
+
+        def center(self) -> Point:
+            return Point()
+
+        def faces(self) -> list[SimpleNamespace]:
+            return [SimpleNamespace(area=value) for value in self.face_areas]
+
+        def edges(self) -> list[int]:
+            return [1, 2, 3, 4]
+
+        def solids(self) -> list[int]:
+            return [1]
+
+    (tmp_path / "input.step").write_bytes(b"source")
+    (tmp_path / "output.step").write_bytes(b"candidate")
+    imported = iter((Shape((100.0, 200.0)), Shape((100.0, 200.0))))
+    monkeypatch.setattr("build123d.import_step", lambda _path: next(imported))
+
+    changed, reason, status = official_cli._editing_candidate_changed(
+        tmp_path, {"output.step"}
+    )
+    assert changed is False
+    assert "equivalent" in reason
+    assert status == "no_op"
+
+    imported = iter((Shape((100.0, 200.0)), Shape((100.0, 201.0))))
+    monkeypatch.setattr("build123d.import_step", lambda _path: next(imported))
+    changed, reason, status = official_cli._editing_candidate_changed(
+        tmp_path, {"output.step"}
+    )
+    assert changed is True
+    assert reason == "face-area distribution changed"
+    assert status == "changed"
+
+
+def test_kernel_edit_signature_rejects_disconnected_body_count(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class Shape:
+        volume = 100.0
+        area = 60.0
+
+        def __init__(self, solid_count: int) -> None:
+            self.solid_count = solid_count
+
+        def bounding_box(self) -> SimpleNamespace:
+            return SimpleNamespace(size=SimpleNamespace(X=1.0, Y=2.0, Z=3.0))
+
+        def center(self) -> SimpleNamespace:
+            return SimpleNamespace(X=0.0, Y=0.0, Z=0.0)
+
+        def faces(self) -> list[SimpleNamespace]:
+            return [SimpleNamespace(area=60.0)]
+
+        def edges(self) -> list[int]:
+            return [1]
+
+        def solids(self) -> list[int]:
+            return list(range(self.solid_count))
+
+    (tmp_path / "input.step").write_bytes(b"source")
+    (tmp_path / "output.step").write_bytes(b"candidate")
+    imported = iter((Shape(1), Shape(5)))
+    monkeypatch.setattr("build123d.import_step", lambda _path: next(imported))
+
+    changed, reason, status = official_cli._editing_candidate_changed(
+        tmp_path, {"output.step"}
+    )
+
+    assert changed is False
+    assert reason == "solid-body count changed from 1 to 5"
+    assert status == "topology_violation"
+    assert official_cli._instruction_allows_solid_count_change(
+        "Split the part into two separate bodies."
+    )
+    assert not official_cli._instruction_allows_solid_count_change(
+        "Reduce the number of impeller blades from 7 to 5."
+    )
+
+
+def test_editing_no_op_is_rolled_back(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    feedback = "Valid:      True\nWatertight: True\n"
+    monkeypatch.setattr(
+        official_cli,
+        "_strict_auto_validate_and_render",
+        lambda *_args, **_kwargs: (feedback, b"png"),
+    )
+    monkeypatch.setattr(
+        official_cli,
+        "_editing_candidate_changed",
+        lambda *_args, **_kwargs: (
+            False,
+            "input/output kernel signatures are equivalent",
+            "no_op",
+        ),
+    )
+    monkeypatch.setattr(official_cli._validation_state, "is_editing", True, raising=False)
+    monkeypatch.setattr(
+        official_cli._validation_state, "required_edit_instances", None, raising=False
+    )
+    monkeypatch.setattr(
+        official_cli._validation_state, "no_op_rejection_count", 0, raising=False
+    )
+    (tmp_path / ".cadrig_last_accepted_output.step").write_bytes(b"accepted")
+    (tmp_path / "output.step").write_bytes(b"unchanged")
+
+    feedback_text, _ = official_cli._auto_validate_and_render_strict(
+        tmp_path,
+        SimpleNamespace(
+            success=True,
+            code="reexport_input()",
+            stdout="",
+            files_produced={"output.step": 9},
+        ),
+    )
+
+    assert official_cli._validation_state.passed is False
+    assert official_cli._validation_state.no_op_rejection_count == 1
+    assert (tmp_path / "output.step").read_bytes() == b"accepted"
+    assert "REJECTED as a no-op" in feedback_text
+
+
 def test_explicit_edit_count_is_part_of_strict_candidate_acceptance(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -225,6 +366,41 @@ def test_terminal_mesh_edit_contract_rejects_unsafe_parameters() -> None:
         _validate_terminal_edit("x", "min", 0, 12_000)
     with pytest.raises(ValueError, match="target_triangles"):
         _validate_terminal_edit("x", "min", 10, 99)
+
+
+def test_radial_feature_removal_cuts_source_and_preserves_body_count(
+    tmp_path: Path,
+) -> None:
+    from build123d import Align, Axis, Box, Cylinder, Location, export_step
+
+    hub = Cylinder(10, 2, align=(Align.CENTER, Align.CENTER, Align.MIN))
+    fins = [
+        Box(8, 2, 2.1, align=(Align.MIN, Align.MIN, Align.MIN))
+        .moved(Location((6, -1, -2)))
+        .rotate(Axis.Z, angle)
+        for angle in (0, 120, 240)
+    ]
+    source = hub.fuse(*fins).clean()
+    assert len(source.solids()) == 1
+    input_step = tmp_path / "input.step"
+    output_step = tmp_path / "output.step"
+    export_step(source, input_step)
+
+    result = brep_fallback.remove_isolated_radial_features_to_step(
+        input_step,
+        output_step,
+        axis="z",
+        split_position_mm=-0.01,
+        side="min",
+        expected_source_count=3,
+        remove_indices=[1],
+    )
+
+    assert result["source_feature_count"] == 3
+    assert result["remaining_feature_count"] == 2
+    assert result["source_solid_count"] == result["output_solid_count"] == 1
+    assert result["volume_removed_mm3"] > 0
+    assert output_step.is_file()
 
 
 def test_cylindrical_mesh_resize_moves_only_selected_ring(
@@ -481,6 +657,7 @@ def test_agent_wrapper_copies_mesh_sidecar_and_adds_generic_guidance(
         captured["description"]
     )
     assert "Treat the requested edit as local" in str(captured["description"])
+    assert "rejected as a no-op" in str(captured["description"])
     assert "at most two distinct execution turns" in str(captured["description"])
     assert "translate_planar_annulus_mesh_region_to_step" in str(
         captured["description"]
@@ -490,6 +667,7 @@ def test_agent_wrapper_copies_mesh_sidecar_and_adds_generic_guidance(
     assert "translate_oriented_mesh_regions_to_step" in str(
         captured["description"]
     )
+    assert "remove_isolated_radial_features_to_step" in str(captured["description"])
     assert "fixture" not in str(captured["description"]).lower()
     assert captured["validation_passed"] is False
 

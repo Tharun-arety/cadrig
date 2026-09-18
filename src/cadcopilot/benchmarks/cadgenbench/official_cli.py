@@ -97,6 +97,11 @@ Editing semantic-completeness contract:
   amount and that unrelated geometry stayed invariant.
 - Inspection code must not write or re-export `output.step`. Export only after
   an actual geometric operation has changed the requested feature.
+- Re-exporting `input.step` without a measurable kernel-level geometry change
+  is rejected as a no-op, even when the resulting STEP is valid and watertight.
+- Preserve the input solid-body count unless the instruction explicitly asks
+  to split, add, remove, merge, or otherwise change bodies. Repeated features
+  such as blades must remain connected to their owning part.
 - Spend at most two distinct execution turns on feature inspection. If exact
   analytic topology is unavailable but plausible split/tessellated faces were
   found, do not repeat the same search with looser predicates. Rank candidates
@@ -173,6 +178,110 @@ def _editing_count_evidence_passed(execution: Any, expected: int | None) -> bool
         and len(centers) == expected
     )
 
+
+def _shape_edit_signature(shape: Any) -> dict[str, Any]:
+    bbox = shape.bounding_box().size
+    center = shape.center()
+    return {
+        "volume": float(shape.volume),
+        "area": float(shape.area),
+        "bbox": (float(bbox.X), float(bbox.Y), float(bbox.Z)),
+        "center": (float(center.X), float(center.Y), float(center.Z)),
+        "face_count": len(shape.faces()),
+        "edge_count": len(shape.edges()),
+        "solid_count": len(shape.solids()),
+        "face_areas": tuple(sorted(float(face.area) for face in shape.faces())),
+    }
+
+
+def _relative_delta(first: float, second: float) -> float:
+    return abs(first - second) / max(abs(first), abs(second), 1.0)
+
+
+def _editing_candidate_changed(
+    work_dir: Path,
+    produced_names: set[str] | None = None,
+    *,
+    preserve_solid_count: bool = True,
+) -> tuple[bool, str, str]:
+    """Reject operation-neutral STEP rewrites using kernel-level shape signatures."""
+    from build123d import import_step
+
+    source = work_dir / "input.step"
+    eligible_names = produced_names if produced_names is not None else set(_CANDIDATE_NAMES)
+    candidate = next(
+        (
+            work_dir / name
+            for name in _CANDIDATE_NAMES
+            if name in eligible_names and (work_dir / name).is_file()
+        ),
+        None,
+    )
+    if not source.is_file() or candidate is None:
+        return (
+            False,
+            "editing comparison requires input.step and an output candidate",
+            "comparison_error",
+        )
+    try:
+        before = _shape_edit_signature(import_step(source))
+        after = _shape_edit_signature(import_step(candidate))
+    except (OSError, RuntimeError, ValueError) as exc:
+        return (
+            False,
+            f"kernel comparison failed: {type(exc).__name__}: {exc}",
+            "comparison_error",
+        )
+
+    if preserve_solid_count and before["solid_count"] != after["solid_count"]:
+        return (
+            False,
+            f"solid-body count changed from {before['solid_count']} to {after['solid_count']}",
+            "topology_violation",
+        )
+
+    if before["face_count"] != after["face_count"]:
+        return True, "face count changed", "changed"
+    if before["edge_count"] != after["edge_count"]:
+        return True, "edge count changed", "changed"
+    if _relative_delta(before["volume"], after["volume"]) > 1.0e-4:
+        return True, "volume changed", "changed"
+    if _relative_delta(before["area"], after["area"]) > 1.0e-4:
+        return True, "surface area changed", "changed"
+    if any(
+        abs(first - second) > 1.0e-3
+        for first, second in zip(before["bbox"], after["bbox"], strict=True)
+    ):
+        return True, "bounding box changed", "changed"
+    if any(
+        abs(first - second) > 1.0e-2
+        for first, second in zip(before["center"], after["center"], strict=True)
+    ):
+        return True, "center of mass changed", "changed"
+    if len(before["face_areas"]) == len(after["face_areas"]) and any(
+        _relative_delta(first, second) > 1.0e-4
+        for first, second in zip(
+            before["face_areas"], after["face_areas"], strict=True
+        )
+    ):
+        return True, "face-area distribution changed", "changed"
+    return (
+        False,
+        "input/output kernel signatures are equivalent within tolerance",
+        "no_op",
+    )
+
+
+def _instruction_allows_solid_count_change(task_description: str) -> bool:
+    return re.search(
+        r"\b(?:split|separate|merge|combine)\b.{0,30}\b(?:body|bodies|solid|solids)\b|"
+        r"\b(?:add|create|remove|delete)\b.{0,20}\b(?:a |the |\d+ )?"
+        r"(?:body|bodies|solid|solids)\b",
+        task_description,
+        flags=re.IGNORECASE,
+    ) is not None
+
+
 _STEP_EDIT_GUIDANCE = """
 
 Imported STEP compatibility notes:
@@ -189,6 +298,26 @@ print("STEP export method:", robust_export_step(shape, "output.step"))
 
 This helper only writes the BREP you provide; it does not select features,
 repair topology, or perform the requested edit.
+
+For a radial feature-count reduction, if a caller-observed split plane isolates
+the repeated features as separate solids on one side, prefer cutting selected
+feature volumes from the source rather than reconstructing the hub:
+
+```python
+from cadcopilot.benchmarks.cadgenbench.brep_fallback import (
+    remove_isolated_radial_features_to_step,
+)
+print(remove_isolated_radial_features_to_step(
+    "input.step", "output.step",
+    axis="z", split_position_mm=<observed attachment coordinate>, side="min",
+    expected_source_count=<observed count>, remove_indices=[<indices>],
+    axis_center=(<observed center 1>, <observed center 2>),
+))
+```
+
+The helper orders isolated features by polar angle, verifies the observed count,
+cuts only the selected feature volumes, and rejects any solid-body-count change.
+It does not redistribute the remaining features or infer the split plane.
 """
 
 _MESH_FALLBACK_GUIDANCE = """
@@ -360,8 +489,19 @@ def _auto_validate_and_render_strict(*args: Any, **kwargs: Any) -> tuple[str, by
     geometry_passed = execution_succeeded and _validation_feedback_passed(
         auto_text, auto_iso
     )
+    change_passed = True
+    change_reason = "not an editing task"
+    change_status = "not_applicable"
+    if geometry_passed and getattr(_validation_state, "is_editing", False) is True:
+        change_passed, change_reason, change_status = _editing_candidate_changed(
+            work_dir,
+            produced,
+            preserve_solid_count=getattr(
+                _validation_state, "preserve_edit_solid_count", True
+            ),
+        )
     evidence_passed = _editing_count_evidence_passed(last_execution, expected)
-    _validation_state.passed = geometry_passed and evidence_passed
+    _validation_state.passed = geometry_passed and change_passed and evidence_passed
     if _validation_state.passed:
         _validation_state.ever_passed = True
         accepted = getattr(_validation_state, "accepted_candidate_code_hashes", set())
@@ -375,6 +515,8 @@ def _auto_validate_and_render_strict(*args: Any, **kwargs: Any) -> tuple[str, by
                 shutil.copy2(candidate, work_dir / f".cadrig_last_accepted_{name}")
         if expected is not None:
             auto_text += f"\nSemantic edit acceptance: PASS ({expected}/{expected} instances).\n"
+        elif getattr(_validation_state, "is_editing", False) is True:
+            auto_text += f"\nSemantic edit acceptance: PASS ({change_reason}).\n"
     else:
         for name in produced:
             candidate = work_dir / name
@@ -388,6 +530,26 @@ def _auto_validate_and_render_strict(*args: Any, **kwargs: Any) -> tuple[str, by
                 "\nSemantic edit acceptance: REJECTED. The explicit target-instance "
                 f"contract requires {expected} matched and {expected} modified "
                 "instances. The previous accepted candidate was restored.\n"
+            )
+        if geometry_passed and not change_passed:
+            counter_name = (
+                "no_op_rejection_count"
+                if change_status == "no_op"
+                else "semantic_invariance_rejection_count"
+            )
+            setattr(
+                _validation_state,
+                counter_name,
+                getattr(_validation_state, counter_name, 0) + 1,
+            )
+            rejection_kind = (
+                "a no-op"
+                if change_status == "no_op"
+                else "an edit-invariance violation"
+            )
+            auto_text += (
+                f"\nSemantic edit acceptance: REJECTED as {rejection_kind}. "
+                f"{change_reason}. The previous accepted candidate was restored.\n"
             )
     return auto_text, auto_iso
 
@@ -404,6 +566,8 @@ def _run_agent_with_mesh_sidecars(
     _validation_state.budget_stop = False
     _validation_state.accepted_candidate_code_hashes = set()
     _validation_state.required_edit_instances = None
+    _validation_state.no_op_rejection_count = 0
+    _validation_state.semantic_invariance_rejection_count = 0
     sidecars: list[Path] = []
     has_step_input = False
     for source in input_files or []:
@@ -413,6 +577,10 @@ def _run_agent_with_mesh_sidecars(
             if sidecar.is_file():
                 sidecars.append(sidecar)
     if has_step_input:
+        _validation_state.is_editing = True
+        _validation_state.preserve_edit_solid_count = (
+            not _instruction_allows_solid_count_change(task_description)
+        )
         expected_instances = _explicit_each_target_count(task_description)
         _validation_state.required_edit_instances = expected_instances
         task_description += (
@@ -423,6 +591,8 @@ def _run_agent_with_mesh_sidecars(
         if expected_instances is not None:
             task_description += _editing_cardinality_guidance(expected_instances)
     else:
+        _validation_state.is_editing = False
+        _validation_state.preserve_edit_solid_count = False
         task_description += _ARTIFACT_SAFETY_GUIDANCE + _GENERATION_COMPLETENESS_GUIDANCE
     if sidecars:
         if work_dir is None:
@@ -449,6 +619,12 @@ def _run_agent_with_mesh_sidecars(
         )
         result._cadrig_required_edit_instances = getattr(
             _validation_state, "required_edit_instances", None
+        )
+        result._cadrig_no_op_rejection_count = getattr(
+            _validation_state, "no_op_rejection_count", 0
+        )
+        result._cadrig_semantic_invariance_rejection_count = getattr(
+            _validation_state, "semantic_invariance_rejection_count", 0
         )
     return result
 
@@ -570,6 +746,12 @@ def _save_with_trace(self: AgentResult, output_dir: str | Path) -> Path:
             "completed": self.completed,
             "stopped_reason": self.stopped_reason,
             "budget_stop": getattr(_validation_state, "budget_stop", False) is True,
+            "semantic_no_op_rejections": getattr(
+                self, "_cadrig_no_op_rejection_count", 0
+            ),
+            "semantic_invariance_rejections": getattr(
+                self, "_cadrig_semantic_invariance_rejection_count", 0
+            ),
             "semantic_edit_contract": (
                 {
                     "required_instances": getattr(

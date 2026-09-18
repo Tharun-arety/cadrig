@@ -328,6 +328,35 @@ operator-selected prototype passed the official validity gate, but that
 prototype is not admitted as an autonomous replacement because target-region
 interpretation remains unconfirmed.
 
+The fifth improvement cohort targeted generation fixtures 129 and 133 plus
+editing fixture 203, whose alpha CAD scores were approximately 0.108, 0.107
+and 0.308. The generation candidates passed independent strict validation with
+34 faces each. Fixture 133 still spent two near-16k completion allowances in
+hidden reasoning without executable output, so prompt-only response-efficiency
+mitigation remains incomplete. The initial fixture-203 artifact was an exact
+kernel-level re-export of its input despite passing STEP validity. CADRIG now
+compares editing input/output volume, area, bounds, center, topology counts and
+face-area distribution, rejecting operation-neutral rewrites during the live
+repair loop. A subsequent five-blade reconstruction changed the geometry but
+produced five disconnected solids from a one-solid source. Editing acceptance
+therefore also preserves source solid-body count by default unless the task
+explicitly requests a body-level topology change.
+
+The connected-body retry then failed closed after eight inspection turns. Its
+trace and a public-input probe motivated a generic BRep fallback for radial
+features that isolate as separate solids across a caller-observed attachment
+plane. The helper orders those features by polar angle, verifies the observed
+source count, cuts selected feature volumes directly from the source, and
+rejects body-count changes. In the autonomous confirmation run, the agent used
+the helper after one inspection turn, reported seven source features and five
+remaining, preserved one solid, passed independent validation and completed in
+46,491 tokens at $0.148682. The composed Batch 5 contains all three accepted
+candidates and passed strict verification, three of three. Across its initial
+cohort and three bounded fixture-203 repairs, Batch 5 used 494,188
+provider-accounted tokens and $2.168816. The radial fallback removes selected
+features but does not redistribute those that remain, so official rescoring—not
+local validity—is still the authority on whether task-203 similarity improved.
+
 These results demonstrate pipeline viability, not statistical benchmark quality
 or state-of-the-art performance.
 
