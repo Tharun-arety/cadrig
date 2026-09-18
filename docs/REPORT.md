@@ -407,6 +407,30 @@ two repairs, Batch 7 used 478,269 provider-accounted tokens and $1.662088; the
 interrupted zero-receipt attempt additionally retains its conservative
 120,000-token, $1.44 scheduler reservation. Fixture 204 remains excluded.
 
+The eighth improvement cohort combined simple generation fixture 113, complex
+generation fixture 139 and central-boss fillet-removal fixture 218. Fixtures
+113 and 139 retained strict-valid one-solid candidates with 10 and 95 faces.
+Fixture 139 repeated the 15,996-token no-code response pattern; adaptive
+reasoning again recovered on the next call with a 1,159-token executable
+response. Fixture 113 demonstrated candidate rollback by preserving its earlier
+valid artifact across five later invalid refinements.
+
+The first fixture-218 artifact filled the boss edge but also cut a novel 55 mm
+coaxial recess. CADRIG now accepts explicit fillet-removal edits only when
+analytic torus evidence decreases without introducing a new cylinder axis and
+radius. A first gated repair correctly failed closed. A public-input prototype
+then motivated a guarded, kernel-level torus-defeaturing helper: the caller must
+supply observed major/minor radii, center and exact matching face count; the
+helper rejects ambiguous selection, body-count changes and results that do not
+reduce analytic torus faces. In the autonomous confirmation, the agent inspected
+the source, selected both 97/2 mm torus faces centered at `(70, 0, -12)`, invoked
+the helper and produced a one-solid, 82-face result. The three accepted Batch 8
+candidates passed strict composition verification. Across the initial cohort
+and two repairs, Batch 8 used 497,290 provider-accounted tokens and $1.788920.
+The confirmation also exposed repeated comment-only `# Done` code blocks after
+success; CADRIG now recognizes that form as completion only after strict-valid
+review, avoiding further no-op calls without weakening the artifact gate.
+
 These results demonstrate pipeline viability, not statistical benchmark quality
 or state-of-the-art performance.
 

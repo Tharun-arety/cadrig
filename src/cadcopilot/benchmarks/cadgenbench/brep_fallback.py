@@ -117,3 +117,98 @@ def remove_isolated_radial_features_to_step(
         "export_method": method,
         "size_bytes": destination.stat().st_size,
     }
+
+
+def remove_analytic_toroidal_faces_to_step(
+    input_step: str | Path,
+    output_step: str | Path,
+    *,
+    major_radius_mm: float,
+    minor_radius_mm: float,
+    center: tuple[float, float, float],
+    expected_face_count: int,
+    tolerance_mm: float = 0.05,
+) -> dict[str, Any]:
+    """Defeature caller-identified analytic torus faces without reconstruction."""
+    from build123d import Solid, import_step
+    from OCP.BRepAdaptor import BRepAdaptor_Surface
+    from OCP.BRepAlgoAPI import BRepAlgoAPI_Defeaturing
+    from OCP.GeomAbs import GeomAbs_Torus
+    from OCP.TopTools import TopTools_ListOfShape
+
+    if major_radius_mm <= 0 or minor_radius_mm <= 0:
+        raise ValueError("torus radii must be positive")
+    if expected_face_count < 1:
+        raise ValueError("expected_face_count must be positive")
+    if tolerance_mm <= 0:
+        raise ValueError("tolerance_mm must be positive")
+    if len(center) != 3:
+        raise ValueError("center must contain x, y, and z")
+
+    source = Path(input_step).resolve()
+    destination = Path(output_step).resolve()
+    shape = import_step(source)
+    source_solid_count = len(shape.solids())
+    matches = []
+    source_torus_count = 0
+    for face in shape.faces():
+        surface = BRepAdaptor_Surface(face.wrapped)
+        if surface.GetType() != GeomAbs_Torus:
+            continue
+        source_torus_count += 1
+        torus = surface.Torus()
+        location = torus.Location()
+        if (
+            abs(float(torus.MajorRadius()) - major_radius_mm) <= tolerance_mm
+            and abs(float(torus.MinorRadius()) - minor_radius_mm) <= tolerance_mm
+            and all(
+                abs(actual - expected) <= tolerance_mm
+                for actual, expected in zip(
+                    (float(location.X()), float(location.Y()), float(location.Z())),
+                    center,
+                    strict=True,
+                )
+            )
+        ):
+            matches.append(face)
+    if len(matches) != expected_face_count:
+        raise RuntimeError(
+            f"matched {len(matches)} torus faces; expected {expected_face_count}"
+        )
+
+    faces = TopTools_ListOfShape()
+    for face in matches:
+        faces.Append(face.wrapped)
+    operation = BRepAlgoAPI_Defeaturing()
+    operation.SetShape(shape.wrapped)
+    operation.AddFacesToRemove(faces)
+    operation.SetRunParallel(True)
+    operation.Build()
+    if not operation.IsDone() or operation.Shape().IsNull():
+        raise RuntimeError("OpenCascade torus defeaturing failed")
+    result = Solid(operation.Shape())
+    if len(result.solids()) != source_solid_count:
+        raise RuntimeError("torus removal changed the source solid-body count")
+
+    result_torus_count = 0
+    for face in result.faces():
+        surface = BRepAdaptor_Surface(face.wrapped)
+        if surface.GetType() == GeomAbs_Torus:
+            result_torus_count += 1
+    if result_torus_count >= source_torus_count:
+        raise RuntimeError("torus removal did not reduce analytic torus faces")
+
+    method = robust_export_step(result, destination)
+    return {
+        "output_step": str(destination),
+        "major_radius_mm": float(major_radius_mm),
+        "minor_radius_mm": float(minor_radius_mm),
+        "center": [float(value) for value in center],
+        "matched_face_count": len(matches),
+        "source_torus_count": source_torus_count,
+        "output_torus_count": result_torus_count,
+        "source_solid_count": source_solid_count,
+        "output_solid_count": len(result.solids()),
+        "export_method": method,
+        "size_bytes": destination.stat().st_size,
+    }

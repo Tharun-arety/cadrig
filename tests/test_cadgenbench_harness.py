@@ -58,6 +58,7 @@ def test_tolerant_extractor_rejects_invalid_truncated_python() -> None:
 
 def test_done_signal_requires_review_after_candidate_changing_code() -> None:
     official_cli._validation_state.passed = True
+    official_cli._validation_state.comment_done_recovery_count = 0
     assert official_cli._has_done_signal_after_review("The candidate is valid. [DONE]") is True
     assert (
         official_cli._has_done_signal_after_review(
@@ -66,9 +67,13 @@ def test_done_signal_requires_review_after_candidate_changing_code() -> None:
         is False
     )
     assert official_cli._has_done_signal_after_review("```python\nprint('[DONE]')\n```") is False
+    assert official_cli._has_done_signal_after_review("```python\n# Done\n```") is True
+    assert official_cli._validation_state.comment_done_recovery_count == 1
+    assert official_cli._has_done_signal_after_review("```python\n# Done\nx = 1\n```") is False
 
     official_cli._validation_state.passed = False
     assert official_cli._has_done_signal_after_review("[DONE]") is False
+    assert official_cli._has_done_signal_after_review("```python\n# Done\n```") is False
 
 
 def test_validation_feedback_requires_valid_watertight_render(
@@ -351,6 +356,31 @@ def test_explicit_hole_spacing_requires_relocation_of_the_named_pair() -> None:
     )[0] is True
 
 
+def test_fillet_removal_rejects_a_novel_coaxial_cut() -> None:
+    outer = (75.0, 0.0, 0.0, 1.0, 70.0, 0.0, 0.0)
+    novel_inner = (55.0, 0.0, 0.0, 1.0, 70.0, 0.0, 0.0)
+    before = {
+        "analytic_torus_radii": ((73.5, 1.5), (97.0, 2.0)),
+        "analytic_cylinder_axes": (outer,),
+    }
+    proxy_recess = {
+        "analytic_torus_radii": ((97.0, 2.0),),
+        "analytic_cylinder_axes": (outer, novel_inner),
+    }
+    correct = {
+        "analytic_torus_radii": ((97.0, 2.0),),
+        "analytic_cylinder_axes": (outer,),
+    }
+
+    passed, reason = official_cli._fillet_removal_passed(before, proxy_recess)
+    assert passed is False
+    assert "novel cylinder axes=1" in reason
+    assert official_cli._fillet_removal_passed(before, correct)[0] is True
+    assert official_cli._instruction_requires_fillet_removal(
+        "Remove the fillet from the outer diameter of the boss."
+    ) is True
+
+
 def test_editing_no_op_is_rolled_back(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -497,6 +527,51 @@ def test_radial_feature_removal_cuts_source_and_preserves_body_count(
     assert result["remaining_feature_count"] == 2
     assert result["source_solid_count"] == result["output_solid_count"] == 1
     assert result["volume_removed_mm3"] > 0
+    assert output_step.is_file()
+
+
+def test_analytic_torus_removal_defeatures_selected_fillet(tmp_path: Path) -> None:
+    from build123d import Cylinder, export_step, fillet, import_step
+    from OCP.BRepAdaptor import BRepAdaptor_Surface
+    from OCP.GeomAbs import GeomAbs_Torus
+
+    cylinder = Cylinder(20, 10)
+    top_edge = max(cylinder.edges(), key=lambda edge: edge.center().Z)
+    source = fillet(top_edge, radius=2)
+    input_step = tmp_path / "input.step"
+    output_step = tmp_path / "output.step"
+    export_step(source, input_step)
+
+    imported = import_step(input_step)
+    torus_faces = []
+    for face in imported.faces():
+        surface = BRepAdaptor_Surface(face.wrapped)
+        if surface.GetType() == GeomAbs_Torus:
+            torus_faces.append(surface.Torus())
+    assert torus_faces
+    target = torus_faces[0]
+    center = target.Location()
+    expected = sum(
+        abs(torus.MajorRadius() - target.MajorRadius()) <= 0.01
+        and abs(torus.MinorRadius() - target.MinorRadius()) <= 0.01
+        and abs(torus.Location().X() - center.X()) <= 0.01
+        and abs(torus.Location().Y() - center.Y()) <= 0.01
+        and abs(torus.Location().Z() - center.Z()) <= 0.01
+        for torus in torus_faces
+    )
+
+    result = brep_fallback.remove_analytic_toroidal_faces_to_step(
+        input_step,
+        output_step,
+        major_radius_mm=target.MajorRadius(),
+        minor_radius_mm=target.MinorRadius(),
+        center=(center.X(), center.Y(), center.Z()),
+        expected_face_count=expected,
+    )
+
+    assert result["matched_face_count"] == expected
+    assert result["output_torus_count"] < result["source_torus_count"]
+    assert result["source_solid_count"] == result["output_solid_count"] == 1
     assert output_step.is_file()
 
 
@@ -758,6 +833,7 @@ def test_agent_wrapper_copies_mesh_sidecar_and_adds_generic_guidance(
     assert "source outer extents" in str(captured["description"])
     assert "old-radius face" in str(captured["description"])
     assert "old analytic cylinder axes" in str(captured["description"])
+    assert "novel coaxial cylinder radius" in str(captured["description"])
     assert "at most two distinct execution turns" in str(captured["description"])
     assert "translate_planar_annulus_mesh_region_to_step" in str(
         captured["description"]
@@ -768,6 +844,7 @@ def test_agent_wrapper_copies_mesh_sidecar_and_adds_generic_guidance(
         captured["description"]
     )
     assert "remove_isolated_radial_features_to_step" in str(captured["description"])
+    assert "remove_analytic_toroidal_faces_to_step" in str(captured["description"])
     assert "fixture" not in str(captured["description"]).lower()
     assert captured["validation_passed"] is False
 

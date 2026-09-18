@@ -115,6 +115,9 @@ Editing semantic-completeness contract:
   old analytic cylinder axes must disappear and the requested number of new
   axes must form the stated center-to-center spacing. One arbitrary extra cut
   is not an acceptable substitute.
+- Removing a fillet must reduce analytic toroidal fillet evidence without
+  introducing a novel coaxial cylinder radius. Do not cut an internal recess
+  while filling an outer edge.
 - Spend at most two distinct execution turns on feature inspection. If exact
   analytic topology is unavailable but plausible split/tessellated faces were
   found, do not repeat the same search with looser predicates. Rank candidates
@@ -206,6 +209,7 @@ def _shape_edit_signature(shape: Any) -> dict[str, Any]:
         "face_areas": tuple(sorted(float(face.area) for face in shape.faces())),
         "analytic_blend_radii": _analytic_blend_radii(shape),
         "analytic_cylinder_axes": _analytic_cylinder_axes(shape),
+        "analytic_torus_radii": _analytic_torus_radii(shape),
     }
 
 
@@ -261,6 +265,24 @@ def _analytic_cylinder_axes(
             )
         )
     return tuple(sorted(axes))
+
+
+def _analytic_torus_radii(shape: Any) -> tuple[tuple[float, float], ...]:
+    from OCP.BRepAdaptor import BRepAdaptor_Surface
+    from OCP.GeomAbs import GeomAbs_Torus
+
+    radii = []
+    for face in shape.faces():
+        wrapped = getattr(face, "wrapped", None)
+        if wrapped is None:
+            continue
+        surface = BRepAdaptor_Surface(wrapped)
+        if surface.GetType() == GeomAbs_Torus:
+            torus = surface.Torus()
+            radii.append(
+                (round(float(torus.MajorRadius()), 3), round(float(torus.MinorRadius()), 3))
+            )
+    return tuple(sorted(radii))
 
 
 def _explicit_blend_radius_transition(
@@ -400,6 +422,32 @@ def _hole_spacing_transition_passed(
     )
 
 
+def _instruction_requires_fillet_removal(task_description: str) -> bool:
+    return re.search(
+        r"\b(?:remove|delete|eliminate)\b.{0,30}\bfillets?\b",
+        task_description,
+        flags=re.IGNORECASE,
+    ) is not None
+
+
+def _fillet_removal_passed(
+    before: dict[str, Any], after: dict[str, Any]
+) -> tuple[bool, str]:
+    before_tori = tuple(before["analytic_torus_radii"])
+    after_tori = tuple(after["analytic_torus_radii"])
+    source_cylinders = {tuple(axis) for axis in before["analytic_cylinder_axes"]}
+    candidate_cylinders = {tuple(axis) for axis in after["analytic_cylinder_axes"]}
+    added_cylinders = candidate_cylinders - source_cylinders
+    passed = len(after_tori) < len(before_tori) and not added_cylinders
+    return (
+        passed,
+        (
+            f"analytic fillet removal tori={len(before_tori)}->{len(after_tori)}; "
+            f"novel cylinder axes={len(added_cylinders)}"
+        ),
+    )
+
+
 def _relative_delta(first: float, second: float) -> float:
     return abs(first - second) / max(abs(first), abs(second), 1.0)
 
@@ -412,6 +460,7 @@ def _editing_candidate_changed(
     preserve_extents: bool = False,
     required_radius_transition: tuple[float, float] | None = None,
     required_hole_spacing_transition: tuple[int, str, str, float, float] | None = None,
+    require_fillet_removal: bool = False,
 ) -> tuple[bool, str, str]:
     """Reject operation-neutral STEP rewrites using kernel-level shape signatures."""
     from build123d import import_step
@@ -478,6 +527,10 @@ def _editing_candidate_changed(
         )
         if not spacing_passed:
             return False, spacing_reason, "topology_violation"
+    if require_fillet_removal:
+        fillet_passed, fillet_reason = _fillet_removal_passed(before, after)
+        if not fillet_passed:
+            return False, fillet_reason, "topology_violation"
 
     if before["face_count"] != after["face_count"]:
         return True, "face count changed", "changed"
@@ -565,6 +618,27 @@ print(remove_isolated_radial_features_to_step(
 The helper orders isolated features by polar angle, verifies the observed count,
 cuts only the selected feature volumes, and rejects any solid-body-count change.
 It does not redistribute the remaining features or infer the split plane.
+
+For fillet removal on imported STEP geometry, Build123d may label an analytic
+torus as a spline. Inspect it with `BRepAdaptor_Surface` and `GeomAbs_Torus`.
+After observing the torus major/minor radii, center and exact matching face
+count, remove only those faces with:
+
+```python
+from cadcopilot.benchmarks.cadgenbench.brep_fallback import (
+    remove_analytic_toroidal_faces_to_step,
+)
+print(remove_analytic_toroidal_faces_to_step(
+    "input.step", "output.step",
+    major_radius_mm=<observed>, minor_radius_mm=<observed>,
+    center=(<observed x>, <observed y>, <observed z>),
+    expected_face_count=<observed exact count>,
+))
+```
+
+The helper rejects ambiguous selections, solid-body-count changes and results
+that do not reduce analytic torus faces. It does not infer which fillet the
+instruction names; selection remains the agent's responsibility.
 """
 
 _MESH_FALLBACK_GUIDANCE = """
@@ -702,14 +776,25 @@ def _extract_code_blocks(text: str, lang: str = "python") -> list[str]:
 
 def _has_done_signal_after_review(text: str) -> bool:
     """Accept completion only after separate review of a strict-valid candidate."""
-    if not _strict_has_done_signal(text):
+    code_blocks = _extract_code_blocks(text)
+    comment_only_done = bool(code_blocks) and all(
+        all(not line.strip() or line.lstrip().startswith("#") for line in block.splitlines())
+        and re.search(r"(?im)^\s*#\s*done\b", block) is not None
+        for block in code_blocks
+    )
+    if not _strict_has_done_signal(text) and not comment_only_done:
         return False
-    if _extract_code_blocks(text):
+    if code_blocks and not comment_only_done:
         return False
-    return (
+    accepted = (
         getattr(_validation_state, "passed", False) is True
         or getattr(_validation_state, "budget_stop", False) is True
     )
+    if accepted and comment_only_done:
+        _validation_state.comment_done_recovery_count = (
+            getattr(_validation_state, "comment_done_recovery_count", 0) + 1
+        )
+    return accepted
 
 
 def _validation_feedback_passed(auto_text: str, auto_iso: bytes | None) -> bool:
@@ -769,6 +854,9 @@ def _auto_validate_and_render_strict(*args: Any, **kwargs: Any) -> tuple[str, by
             ),
             required_hole_spacing_transition=getattr(
                 _validation_state, "required_hole_spacing_transition", None
+            ),
+            require_fillet_removal=getattr(
+                _validation_state, "require_fillet_removal", False
             ),
         )
     evidence_passed = _editing_count_evidence_passed(last_execution, expected)
@@ -845,6 +933,7 @@ def _run_agent_with_mesh_sidecars(
     _validation_state.inspection_budget_stop_count = 0
     _validation_state.prompt_margin_calibration_count = 0
     _validation_state.adaptive_prompt_margin_tokens = _PROMPT_TOKEN_MARGIN
+    _validation_state.comment_done_recovery_count = 0
     sidecars: list[Path] = []
     has_step_input = False
     for source in input_files or []:
@@ -867,6 +956,9 @@ def _run_agent_with_mesh_sidecars(
         _validation_state.required_hole_spacing_transition = (
             _explicit_hole_spacing_transition(task_description)
         )
+        _validation_state.require_fillet_removal = (
+            _instruction_requires_fillet_removal(task_description)
+        )
         expected_instances = _explicit_each_target_count(task_description)
         _validation_state.required_edit_instances = expected_instances
         task_description += (
@@ -882,6 +974,7 @@ def _run_agent_with_mesh_sidecars(
         _validation_state.preserve_edit_extents = False
         _validation_state.required_blend_radius_transition = None
         _validation_state.required_hole_spacing_transition = None
+        _validation_state.require_fillet_removal = False
         task_description += _ARTIFACT_SAFETY_GUIDANCE + _GENERATION_COMPLETENESS_GUIDANCE
     if sidecars:
         if work_dir is None:
@@ -932,6 +1025,9 @@ def _run_agent_with_mesh_sidecars(
         )
         result._cadrig_adaptive_prompt_margin_tokens = getattr(
             _validation_state, "adaptive_prompt_margin_tokens", _PROMPT_TOKEN_MARGIN
+        )
+        result._cadrig_comment_done_recovery_count = getattr(
+            _validation_state, "comment_done_recovery_count", 0
         )
     return result
 
@@ -1035,6 +1131,9 @@ def _save_with_trace(self: AgentResult, output_dir: str | Path) -> Path:
         self._cadrig_adaptive_prompt_margin_tokens = getattr(
             _validation_state, "adaptive_prompt_margin_tokens", _PROMPT_TOKEN_MARGIN
         )
+        self._cadrig_comment_done_recovery_count = getattr(
+            _validation_state, "comment_done_recovery_count", 0
+        )
     destination = _strict_agent_result_save(self, output_dir)
     _sanitize_saved_candidates(self, destination)
     turns: list[dict[str, Any]] = []
@@ -1099,6 +1198,9 @@ def _save_with_trace(self: AgentResult, output_dir: str | Path) -> Path:
                 self,
                 "_cadrig_adaptive_prompt_margin_tokens",
                 _PROMPT_TOKEN_MARGIN,
+            ),
+            "comment_done_recoveries": getattr(
+                self, "_cadrig_comment_done_recovery_count", 0
             ),
             "semantic_edit_contract": (
                 {
