@@ -357,6 +357,30 @@ provider-accounted tokens and $2.168816. The radial fallback removes selected
 features but does not redistribute those that remain, so official rescoring—not
 local validity—is still the authority on whether task-203 similarity improved.
 
+The sixth improvement cohort targeted generation fixtures 108 and 140 plus
+editing fixture 241. All three initial files passed structural verification
+after 291,871 tokens and $1.484472, but semantic audit admitted only the two
+generation candidates. Fixture 108 is a one-solid, 44-face flat-pattern model;
+fixture 140 is a two-solid, 112-face housing model. They were isolated into a
+two-candidate composition that passed strict verification. Fixture 140 also
+exposed a response-efficiency failure: three model turns exhausted almost the
+entire 15,996-token completion allowance without returning executable code.
+After any such response, CADRIG now lowers subsequent provider reasoning effort
+for that task and records both the empty response and downgrade in the trace.
+
+The initial fixture-241 edit added concentric cylindrical geometry near the
+requested blend while retaining both original 18 mm blend faces. Aggregate
+shape change and watertightness therefore supplied a false semantic positive.
+For explicit “blend/fillet from X mm to Y mm” instructions, acceptance now
+requires analytically observed old-radius faces to decrease and new-radius
+faces to increase; proxy rings are rejected. A bounded repair consumed 110,121
+tokens and $0.373872, but its producing turns either restored the unchanged
+input or removed the old blend without successfully creating the 14 mm blend.
+It consequently failed closed with no published candidate. Batch 6 used
+401,992 provider-accounted tokens and $1.858344 in total. Fixture 241 remains
+excluded, and only fixtures 108 and 140 are retained as local replacement
+candidates pending official scoring.
+
 These results demonstrate pipeline viability, not statistical benchmark quality
 or state-of-the-art performance.
 

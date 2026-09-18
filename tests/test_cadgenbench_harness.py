@@ -208,6 +208,19 @@ def test_kernel_edit_signature_rejects_reexport_and_accepts_real_change(
     assert reason == "face-area distribution changed"
     assert status == "changed"
 
+    class ExpandedShape(Shape):
+        def bounding_box(self) -> SimpleNamespace:
+            return SimpleNamespace(size=SimpleNamespace(X=12.0, Y=20.0, Z=30.0))
+
+    imported = iter((Shape((100.0, 200.0)), ExpandedShape((100.0, 201.0))))
+    monkeypatch.setattr("build123d.import_step", lambda _path: next(imported))
+    changed, reason, status = official_cli._editing_candidate_changed(
+        tmp_path, {"output.step"}, preserve_extents=True
+    )
+    assert changed is False
+    assert "changed outer extents" in reason
+    assert status == "topology_violation"
+
 
 def test_kernel_edit_signature_rejects_disconnected_body_count(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
@@ -252,6 +265,25 @@ def test_kernel_edit_signature_rejects_disconnected_body_count(
     assert not official_cli._instruction_allows_solid_count_change(
         "Reduce the number of impeller blades from 7 to 5."
     )
+
+
+def test_explicit_blend_radius_transition_requires_old_to_new_face_change() -> None:
+    transition = official_cli._explicit_blend_radius_transition(
+        "Resize the blend on the peninsula from 18mm to 14mm."
+    )
+    assert transition == (18.0, 14.0)
+    before = {"analytic_blend_radii": (10.0, 14.0, 18.0, 18.0)}
+    proxy_ring = {"analytic_blend_radii": (10.0, 14.0, 14.0, 18.0, 18.0, 18.0)}
+    correct = {"analytic_blend_radii": (10.0, 14.0, 14.0, 14.0)}
+
+    passed, reason = official_cli._blend_radius_transition_passed(
+        before, proxy_ring, transition
+    )
+    assert passed is False
+    assert "18 mm: 2->3" in reason
+    assert official_cli._blend_radius_transition_passed(
+        before, correct, transition
+    )[0] is True
 
 
 def test_editing_no_op_is_rolled_back(
@@ -658,6 +690,8 @@ def test_agent_wrapper_copies_mesh_sidecar_and_adds_generic_guidance(
     )
     assert "Treat the requested edit as local" in str(captured["description"])
     assert "rejected as a no-op" in str(captured["description"])
+    assert "source outer extents" in str(captured["description"])
+    assert "old-radius face" in str(captured["description"])
     assert "at most two distinct execution turns" in str(captured["description"])
     assert "translate_planar_annulus_mesh_region_to_step" in str(
         captured["description"]
@@ -828,6 +862,45 @@ def test_failed_only_candidate_is_not_published(
     assert (destination / "turn_0" / "rejected_failed_output.step").is_file()
 
 
+def test_incremental_trace_refreshes_live_semantic_counters(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    result = SimpleNamespace(
+        turns=[],
+        total_tokens=0,
+        total_duration_s=0.0,
+        completed=False,
+        stopped_reason="max_iterations",
+        _cadrig_semantic_invariance_rejection_count=0,
+    )
+
+    def save(_result: object, output_dir: str | Path) -> Path:
+        destination = Path(output_dir)
+        destination.mkdir(parents=True)
+        return destination
+
+    monkeypatch.setattr(official_cli, "_strict_agent_result_save", save)
+    monkeypatch.setattr(official_cli._validation_state, "run_active", True, raising=False)
+    monkeypatch.setattr(
+        official_cli._validation_state,
+        "semantic_invariance_rejection_count",
+        3,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        official_cli._validation_state,
+        "accepted_candidate_code_hashes",
+        {"accepted"},
+        raising=False,
+    )
+
+    destination = official_cli._save_with_trace(result, tmp_path / "saved")
+
+    trace = json.loads((destination / "trace.json").read_text(encoding="utf-8"))
+    assert trace["semantic_invariance_rejections"] == 3
+    assert result._cadrig_accepted_candidate_code_hashes == frozenset({"accepted"})
+
+
 def test_semantically_unaccepted_edit_candidate_is_not_published(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -983,6 +1056,61 @@ def test_provider_usage_ledger_persists_rejected_over_cap_call(
             "unclassified_tokens": 0,
         }
     ]
+
+
+def test_no_code_provider_response_downgrades_later_reasoning(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("CADCOPILOT_ATTEMPT_TOKEN_CAP", "100000")
+    monkeypatch.setattr(
+        official_cli._validation_state,
+        "no_code_provider_response_count",
+        0,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        official_cli._validation_state,
+        "response_effort_downgrade_count",
+        0,
+        raising=False,
+    )
+    client = SimpleNamespace(
+        _cadcopilot_consumed_tokens=0,
+        count_tokens=lambda _messages: 100,
+    )
+    efforts: list[str] = []
+    responses = iter(
+        (
+            SimpleNamespace(
+                content="analysis without executable code",
+                prompt_tokens=100,
+                completion_tokens=900,
+                total_tokens=1_000,
+            ),
+            SimpleNamespace(
+                content="```python\nprint('execute')\n```",
+                prompt_tokens=100,
+                completion_tokens=200,
+                total_tokens=300,
+            ),
+        )
+    )
+
+    def complete(_client: object, _messages: object, **kwargs: object) -> object:
+        efforts.append(str(kwargs["reasoning_effort"]))
+        return next(responses)
+
+    monkeypatch.setattr(official_cli, "_strict_llm_complete", complete)
+    official_cli._complete_with_cap(
+        client, [], max_tokens=16_000, reasoning_effort="medium"
+    )
+    official_cli._complete_with_cap(
+        client, [], max_tokens=16_000, reasoning_effort="medium"
+    )
+
+    assert efforts == ["medium", "low"]
+    assert official_cli._validation_state.no_code_provider_response_count == 1
+    assert official_cli._validation_state.response_effort_downgrade_count == 1
 
 
 def test_token_cap_stops_gracefully_after_a_strict_valid_candidate(

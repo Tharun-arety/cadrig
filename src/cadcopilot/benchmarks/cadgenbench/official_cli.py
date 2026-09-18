@@ -102,6 +102,12 @@ Editing semantic-completeness contract:
 - Preserve the input solid-body count unless the instruction explicitly asks
   to split, add, remove, merge, or otherwise change bodies. Repeated features
   such as blades must remain connected to their owning part.
+- A local blend, fillet, chamfer, hole, bore, pocket, or slot edit must preserve
+  the source outer extents. Adding proxy geometry outside those extents is not
+  an acceptable way to simulate the requested feature change.
+- For an explicit analytic blend/fillet radius transition, the old-radius face
+  count must decrease and the new-radius face count must increase. Adding a
+  separate ring with the new radius while retaining the old blend is rejected.
 - Spend at most two distinct execution turns on feature inspection. If exact
   analytic topology is unavailable but plausible split/tessellated faces were
   found, do not repeat the same search with looser predicates. Rank candidates
@@ -191,7 +197,68 @@ def _shape_edit_signature(shape: Any) -> dict[str, Any]:
         "edge_count": len(shape.edges()),
         "solid_count": len(shape.solids()),
         "face_areas": tuple(sorted(float(face.area) for face in shape.faces())),
+        "analytic_blend_radii": _analytic_blend_radii(shape),
     }
+
+
+def _analytic_blend_radii(shape: Any) -> tuple[float, ...]:
+    from OCP.BRepAdaptor import BRepAdaptor_Surface
+    from OCP.GeomAbs import GeomAbs_Cylinder, GeomAbs_Torus
+
+    radii: list[float] = []
+    for face in shape.faces():
+        wrapped = getattr(face, "wrapped", None)
+        if wrapped is None:
+            continue
+        surface = BRepAdaptor_Surface(wrapped)
+        if surface.GetType() == GeomAbs_Cylinder:
+            radii.append(float(surface.Cylinder().Radius()))
+        elif surface.GetType() == GeomAbs_Torus:
+            radii.append(float(surface.Torus().MinorRadius()))
+    return tuple(sorted(radii))
+
+
+def _explicit_blend_radius_transition(
+    task_description: str,
+) -> tuple[float, float] | None:
+    match = re.search(
+        r"\b(?:blends?|fillets?)\b.*?\bfrom\s+([0-9]+(?:\.[0-9]+)?)\s*mm\s+"
+        r"\bto\s+([0-9]+(?:\.[0-9]+)?)\s*mm\b",
+        task_description,
+        flags=re.IGNORECASE,
+    )
+    if match is None:
+        return None
+    return float(match.group(1)), float(match.group(2))
+
+
+def _blend_radius_transition_passed(
+    before: dict[str, Any],
+    after: dict[str, Any],
+    transition: tuple[float, float],
+) -> tuple[bool, str]:
+    old_radius, new_radius = transition
+
+    def count(signature: dict[str, Any], radius: float) -> int:
+        return sum(
+            abs(float(value) - radius) <= 0.1
+            for value in signature["analytic_blend_radii"]
+        )
+
+    old_before = count(before, old_radius)
+    if old_before == 0:
+        return True, "source blend radius is not analytically observable"
+    old_after = count(after, old_radius)
+    new_before = count(before, new_radius)
+    new_after = count(after, new_radius)
+    passed = old_after < old_before and new_after > new_before
+    return (
+        passed,
+        (
+            f"analytic radius counts {old_radius:g} mm: {old_before}->{old_after}, "
+            f"{new_radius:g} mm: {new_before}->{new_after}"
+        ),
+    )
 
 
 def _relative_delta(first: float, second: float) -> float:
@@ -203,6 +270,8 @@ def _editing_candidate_changed(
     produced_names: set[str] | None = None,
     *,
     preserve_solid_count: bool = True,
+    preserve_extents: bool = False,
+    required_radius_transition: tuple[float, float] | None = None,
 ) -> tuple[bool, str, str]:
     """Reject operation-neutral STEP rewrites using kernel-level shape signatures."""
     from build123d import import_step
@@ -239,6 +308,30 @@ def _editing_candidate_changed(
             f"solid-body count changed from {before['solid_count']} to {after['solid_count']}",
             "topology_violation",
         )
+    if preserve_extents:
+        extent_deltas = [
+            abs(first - second)
+            for first, second in zip(before["bbox"], after["bbox"], strict=True)
+        ]
+        extent_tolerances = [max(0.5, abs(value) * 0.005) for value in before["bbox"]]
+        if any(
+            delta > tolerance
+            for delta, tolerance in zip(
+                extent_deltas, extent_tolerances, strict=True
+            )
+        ):
+            formatted = ", ".join(f"{value:.3f}" for value in extent_deltas)
+            return (
+                False,
+                f"local-feature edit changed outer extents by ({formatted}) mm",
+                "topology_violation",
+            )
+    if required_radius_transition is not None:
+        radius_passed, radius_reason = _blend_radius_transition_passed(
+            before, after, required_radius_transition
+        )
+        if not radius_passed:
+            return False, radius_reason, "topology_violation"
 
     if before["face_count"] != after["face_count"]:
         return True, "face count changed", "changed"
@@ -277,6 +370,14 @@ def _instruction_allows_solid_count_change(task_description: str) -> bool:
         r"\b(?:split|separate|merge|combine)\b.{0,30}\b(?:body|bodies|solid|solids)\b|"
         r"\b(?:add|create|remove|delete)\b.{0,20}\b(?:a |the |\d+ )?"
         r"(?:body|bodies|solid|solids)\b",
+        task_description,
+        flags=re.IGNORECASE,
+    ) is not None
+
+
+def _instruction_requires_extent_preservation(task_description: str) -> bool:
+    return re.search(
+        r"\b(?:blend|fillet|chamfer|hole|bore|pocket|slot)\b",
         task_description,
         flags=re.IGNORECASE,
     ) is not None
@@ -499,6 +600,12 @@ def _auto_validate_and_render_strict(*args: Any, **kwargs: Any) -> tuple[str, by
             preserve_solid_count=getattr(
                 _validation_state, "preserve_edit_solid_count", True
             ),
+            preserve_extents=getattr(
+                _validation_state, "preserve_edit_extents", False
+            ),
+            required_radius_transition=getattr(
+                _validation_state, "required_blend_radius_transition", None
+            ),
         )
     evidence_passed = _editing_count_evidence_passed(last_execution, expected)
     _validation_state.passed = geometry_passed and change_passed and evidence_passed
@@ -568,6 +675,8 @@ def _run_agent_with_mesh_sidecars(
     _validation_state.required_edit_instances = None
     _validation_state.no_op_rejection_count = 0
     _validation_state.semantic_invariance_rejection_count = 0
+    _validation_state.no_code_provider_response_count = 0
+    _validation_state.response_effort_downgrade_count = 0
     sidecars: list[Path] = []
     has_step_input = False
     for source in input_files or []:
@@ -581,6 +690,12 @@ def _run_agent_with_mesh_sidecars(
         _validation_state.preserve_edit_solid_count = (
             not _instruction_allows_solid_count_change(task_description)
         )
+        _validation_state.preserve_edit_extents = (
+            _instruction_requires_extent_preservation(task_description)
+        )
+        _validation_state.required_blend_radius_transition = (
+            _explicit_blend_radius_transition(task_description)
+        )
         expected_instances = _explicit_each_target_count(task_description)
         _validation_state.required_edit_instances = expected_instances
         task_description += (
@@ -593,6 +708,8 @@ def _run_agent_with_mesh_sidecars(
     else:
         _validation_state.is_editing = False
         _validation_state.preserve_edit_solid_count = False
+        _validation_state.preserve_edit_extents = False
+        _validation_state.required_blend_radius_transition = None
         task_description += _ARTIFACT_SAFETY_GUIDANCE + _GENERATION_COMPLETENESS_GUIDANCE
     if sidecars:
         if work_dir is None:
@@ -625,6 +742,12 @@ def _run_agent_with_mesh_sidecars(
         )
         result._cadrig_semantic_invariance_rejection_count = getattr(
             _validation_state, "semantic_invariance_rejection_count", 0
+        )
+        result._cadrig_no_code_provider_response_count = getattr(
+            _validation_state, "no_code_provider_response_count", 0
+        )
+        result._cadrig_response_effort_downgrade_count = getattr(
+            _validation_state, "response_effort_downgrade_count", 0
         )
     return result
 
@@ -696,16 +819,25 @@ def _sanitize_saved_candidates(result: AgentResult, destination: Path) -> None:
 
 
 def _save_with_trace(self: AgentResult, output_dir: str | Path) -> Path:
-    if (
-        getattr(_validation_state, "run_active", False) is True
-        and not hasattr(self, "_cadrig_enforce_accepted_candidates")
-    ):
+    if getattr(_validation_state, "run_active", False) is True:
         self._cadrig_enforce_accepted_candidates = True
         self._cadrig_accepted_candidate_code_hashes = frozenset(
             getattr(_validation_state, "accepted_candidate_code_hashes", set())
         )
         self._cadrig_required_edit_instances = getattr(
             _validation_state, "required_edit_instances", None
+        )
+        self._cadrig_no_code_provider_response_count = getattr(
+            _validation_state, "no_code_provider_response_count", 0
+        )
+        self._cadrig_response_effort_downgrade_count = getattr(
+            _validation_state, "response_effort_downgrade_count", 0
+        )
+        self._cadrig_no_op_rejection_count = getattr(
+            _validation_state, "no_op_rejection_count", 0
+        )
+        self._cadrig_semantic_invariance_rejection_count = getattr(
+            _validation_state, "semantic_invariance_rejection_count", 0
         )
     destination = _strict_agent_result_save(self, output_dir)
     _sanitize_saved_candidates(self, destination)
@@ -751,6 +883,12 @@ def _save_with_trace(self: AgentResult, output_dir: str | Path) -> Path:
             ),
             "semantic_invariance_rejections": getattr(
                 self, "_cadrig_semantic_invariance_rejection_count", 0
+            ),
+            "no_code_provider_responses": getattr(
+                self, "_cadrig_no_code_provider_response_count", 0
+            ),
+            "response_effort_downgrades": getattr(
+                self, "_cadrig_response_effort_downgrade_count", 0
             ),
             "semantic_edit_contract": (
                 {
@@ -829,6 +967,14 @@ def _complete_with_cap(
     raw_cap = os.environ.get(_TOKEN_CAP_ENV)
     if raw_cap is None:
         return _strict_llm_complete(self, messages, **kwargs)
+    if (
+        getattr(self, "_cadrig_force_low_reasoning", False) is True
+        and kwargs.get("reasoning_effort") in {"medium", "high"}
+    ):
+        kwargs["reasoning_effort"] = "low"
+        _validation_state.response_effort_downgrade_count = (
+            getattr(_validation_state, "response_effort_downgrade_count", 0) + 1
+        )
     try:
         token_cap = int(raw_cap)
         consumed = int(getattr(self, "_cadcopilot_consumed_tokens", 0))
@@ -881,6 +1027,14 @@ def _complete_with_cap(
             )
         raise RuntimeError(
             f"provider-reported usage exceeded attempt token cap ({new_total} > {token_cap})"
+        )
+    if (
+        not _extract_code_blocks(completion.content)
+        and not _strict_has_done_signal(completion.content)
+    ):
+        self._cadrig_force_low_reasoning = True
+        _validation_state.no_code_provider_response_count = (
+            getattr(_validation_state, "no_code_provider_response_count", 0) + 1
         )
     return completion
 
