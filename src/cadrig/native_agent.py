@@ -4,9 +4,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 from enum import Enum
+from pathlib import Path, PurePosixPath
+from tempfile import TemporaryDirectory
 from typing import Any
 
 from cadrig.action_graph import ActionGraphContext, ActionGraphPlanner, ActionPlanningError
+from cadrig.artifacts import ArtifactCapture, CapturedArtifact
 from cadrig.contract_compiler import ContractCompiler, ContractContext
 from cadrig.contracts import ActionPlan, ExecutionReceipt
 from cadrig.design_contracts import DesignContract
@@ -37,6 +40,7 @@ class AgentRun:
     trace: AgentTrace
     attempts: int
     rollback_receipt: ExecutionReceipt | None = None
+    artifact_capture: ArtifactCapture | None = None
     episode: EpisodeRecord | None = None
     episode_error: str | None = None
 
@@ -55,6 +59,9 @@ class AgentRun:
             "verification": self.verification.to_dict() if self.verification else None,
             "rollback_receipt": self.rollback_receipt.to_dict() if self.rollback_receipt else None,
             "trace": self.trace.to_dict(),
+            "artifact_capture": (
+                self.artifact_capture.to_dict() if self.artifact_capture else None
+            ),
             "episode": self.episode.to_dict() if self.episode else None,
             "episode_error": self.episode_error,
         }
@@ -93,15 +100,40 @@ class NativeCADAgent:
         self.last_episode_error = None
         if self._episode_store is None:
             return run
-        try:
-            self.last_episode = self._episode_store.record_run(
-                run,
-                context=self._episode_context,
+        with TemporaryDirectory(prefix="cadrig-artifacts-") as temporary:
+            if run.status is AgentRunStatus.COMMITTED:
+                capture = self._executor.capture_artifacts(
+                    run.trace.adapter_id,
+                    run.trace.document_id,
+                    Path(temporary),
+                )
+                run = replace(run, artifact_capture=capture)
+            try:
+                self.last_episode = self._episode_store.record_run(
+                    run,
+                    context=self._episode_context,
+                )
+            except EpisodeStoreError as exc:
+                self.last_episode_error = str(exc)
+                return replace(run, episode_error=self.last_episode_error)
+        stored_capture = None
+        if run.artifact_capture is not None:
+            assert self.last_episode is not None
+            stored_capture = ArtifactCapture(
+                artifacts=tuple(
+                    CapturedArtifact(
+                        artifact.logical_name,
+                        self.last_episode.path
+                        / "artifacts"
+                        / Path(*PurePosixPath(artifact.logical_name).parts),
+                        artifact.media_type,
+                        artifact.role,
+                    )
+                    for artifact in run.artifact_capture.artifacts
+                ),
+                diagnostics=run.artifact_capture.diagnostics,
             )
-        except EpisodeStoreError as exc:
-            self.last_episode_error = str(exc)
-            return replace(run, episode_error=self.last_episode_error)
-        return replace(run, episode=self.last_episode)
+        return replace(run, episode=self.last_episode, artifact_capture=stored_capture)
 
     def _record_failure(self, trace: AgentTrace, error: str) -> None:
         if self._episode_store is None:

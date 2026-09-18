@@ -5,6 +5,7 @@ import pytest
 
 from cadrig.action_graph import ActionGraphPlanner
 from cadrig.adapters.memory import MemoryKernelAdapter
+from cadrig.artifacts import ArtifactCapture, CapturedArtifact
 from cadrig.contract_compiler import ContractCompiler
 from cadrig.episodes import (
     EpisodeContext,
@@ -67,9 +68,9 @@ def plan():
     }
 
 
-def agent(model, *, store=None, context=None):
+def agent(model, *, store=None, context=None, adapter=None):
     registry = AdapterRegistry()
-    registry.register(MemoryKernelAdapter())
+    registry.register(adapter or MemoryKernelAdapter())
     return NativeCADAgent(
         executor=ExecutionEngine(registry),
         compiler=ContractCompiler(model),
@@ -77,6 +78,25 @@ def agent(model, *, store=None, context=None):
         episode_store=store,
         episode_context=context,
     )
+
+
+class CapturingMemoryAdapter(MemoryKernelAdapter):
+    def capture_artifacts(self, document_id, destination):
+        native = destination / "output.FCStd"
+        step = destination / "output.step"
+        native.write_bytes(f"native:{document_id}".encode())
+        step.write_bytes(b"ISO-10303-21;\nEND-ISO-10303-21;\n")
+        return ArtifactCapture(
+            artifacts=(
+                CapturedArtifact(
+                    "output.FCStd",
+                    native,
+                    "application/x-freecad-document",
+                    "native_document",
+                ),
+                CapturedArtifact("output.step", step, "model/step", "exchange_document"),
+            )
+        )
 
 
 def test_native_agent_records_hashed_secret_safe_episode(tmp_path):
@@ -150,6 +170,33 @@ def test_episode_is_immutable_and_can_copy_named_artifacts(tmp_path):
     assert (record.path / "artifacts" / "output.step").read_bytes() == source.read_bytes()
     with pytest.raises(EpisodeStoreError, match="immutable"):
         store.record_run(plain_result)
+
+
+def test_committed_run_automatically_captures_native_artifacts(tmp_path):
+    store = EpisodeStore(tmp_path / "episodes")
+    result = agent(
+        SequenceModel(contract(), plan()),
+        store=store,
+        adapter=CapturingMemoryAdapter(),
+    ).run(
+        intent="Create a 10 by 20 by 5 box",
+        adapter_id="memory",
+        document_id="episode-part",
+        apply=True,
+    )
+
+    assert result.episode is not None
+    assert result.artifact_capture is not None
+    assert result.artifact_capture.to_dict()["complete"] is True
+    assert {item.logical_name for item in result.artifact_capture.artifacts} == {
+        "output.FCStd",
+        "output.step",
+    }
+    assert all(item.path.is_file() for item in result.artifact_capture.artifacts)
+    capture = json.loads(
+        (result.episode.path / "artifact_capture.json").read_text(encoding="utf-8")
+    )
+    assert capture["complete"] is True
 
 
 def test_unsafe_artifact_name_is_rejected_without_partial_episode(tmp_path):

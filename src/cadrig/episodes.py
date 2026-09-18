@@ -149,6 +149,9 @@ class EpisodeStore:
             ),
             "input_snapshot.json": receipt.before.to_dict() if receipt and receipt.before else None,
             "output_snapshot.json": receipt.after.to_dict() if receipt and receipt.after else None,
+            "artifact_capture.json": (
+                run.artifact_capture.to_dict() if run.artifact_capture else None
+            ),
         }
         return self._record(
             trace=run.trace,
@@ -157,7 +160,10 @@ class EpisodeStore:
             attempts=run.attempts,
             context=context,
             payloads=payloads,
-            artifacts=artifacts,
+            artifacts=self._merge_artifacts(
+                run.artifact_capture.files if run.artifact_capture else None,
+                artifacts,
+            ),
             error=None,
         )
 
@@ -182,6 +188,7 @@ class EpisodeStore:
                 "rollback_receipt.json": None,
                 "input_snapshot.json": None,
                 "output_snapshot.json": None,
+                "artifact_capture.json": None,
             },
             artifacts=None,
             error=error,
@@ -304,6 +311,18 @@ class EpisodeStore:
             destination = root.joinpath(*logical.parts)
             destination.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(source, destination)
+
+    @staticmethod
+    def _merge_artifacts(
+        captured: Mapping[str, Path | str] | None,
+        supplied: Mapping[str, Path | str] | None,
+    ) -> dict[str, Path | str] | None:
+        if not captured and not supplied:
+            return None
+        overlap = set(captured or {}) & set(supplied or {})
+        if overlap:
+            raise EpisodeStoreError(f"duplicate artifact names: {sorted(overlap)}")
+        return {**dict(captured or {}), **dict(supplied or {})}
 
     @classmethod
     def _file_inventory(cls, root: Path) -> list[dict[str, Any]]:

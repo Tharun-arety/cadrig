@@ -65,7 +65,7 @@ must report unsupported tasks truthfully.
 - [x] Automatic native CLI and FreeCAD-workbench recording.
 - [x] Credential redaction and explicit training-eligibility policy.
 - [x] Hard separation of held-out evaluation episodes from training data.
-- [ ] Capture native CAD documents, STEP exports and standardized multi-view renders.
+- [x] Capture native CAD documents, STEP exports and standardized multi-view renders.
 - [ ] Add curation, deduplication and object-storage synchronization tooling.
 
 ## R1 — Useful FreeCAD copilot

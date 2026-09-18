@@ -1,4 +1,5 @@
 import copy
+from pathlib import Path
 
 from cadrig.adapters.freecad import FreeCADKernelAdapter
 from cadrig.contracts import Action, ActionKind, ActionPlan, ExecutionStatus
@@ -78,6 +79,9 @@ class FakeDocument:
     def recompute(self):
         return True
 
+    def saveCopy(self, path):
+        Path(path).write_bytes(b"freecad-document")
+
 
 class FakeApp:
     def __init__(self):
@@ -118,6 +122,10 @@ class FakePart:
     @staticmethod
     def Circle(center, normal, radius):
         return ("circle", center, normal, radius)
+
+    @staticmethod
+    def export(objects, path):
+        Path(path).write_bytes(f"step-objects:{len(objects)}".encode())
 
 
 class FakeSketcher:
@@ -187,6 +195,33 @@ def test_freecad_adapter_dry_run_does_not_leave_a_document():
     )
     assert receipt.status is ExecutionStatus.DRY_RUN
     assert adapter.observe("part_1") is None
+
+
+def test_freecad_adapter_captures_native_and_step_artifacts_headlessly(tmp_path):
+    class SolidShape:
+        Solids = (object(),)
+
+        @staticmethod
+        def isNull():
+            return False
+
+        @staticmethod
+        def isValid():
+            return True
+
+    adapter, app = make_adapter()
+    document = app.newDocument("part_1")
+    body = document.addObject("Part::Box", "Body")
+    body.Shape = SolidShape()
+
+    capture = adapter.capture_artifacts("part_1", tmp_path)
+
+    assert {item.logical_name for item in capture.artifacts} == {
+        "output.FCStd",
+        "output.step",
+    }
+    assert all(item.path.is_file() for item in capture.artifacts)
+    assert capture.diagnostics[0].code == "RENDER_CAPTURE_UNAVAILABLE"
 
 
 def test_freecad_adapter_builds_semantic_sketch_and_parametric_extrusion():

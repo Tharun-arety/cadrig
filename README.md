@@ -66,6 +66,7 @@ Version `0.2.0a1` includes:
 - automatic rollback when post-commit verification fails;
 - replay-oriented traces containing contracts, plans, receipts and verification reports;
 - immutable, hashed CADRIG Episodes with provenance and train/evaluation separation;
+- automatic `.FCStd`, STEP and standardized multi-view capture for committed FreeCAD runs;
 - a thin FreeCAD workbench that exposes contract, action graph, verification and receipt;
 - bring-your-own-model planning through OpenAI-compatible endpoints;
 - FreeCAD `.FCMacro` generation with safe and review-only policies;

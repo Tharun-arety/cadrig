@@ -23,8 +23,11 @@ be committed to the source repository.
 
 Each completed run contains `episode.json`, `trace.jsonl`, `contract.json`,
 `action_graph.json`, `verification.json`, execution receipts and normalized
-input/output snapshots. Callers that own exported CAD artifacts can pass them
-to `EpisodeStore.record_run(..., artifacts={...})`; those files are copied
+input/output snapshots. A committed FreeCAD run automatically adds `output.FCStd`,
+`output.step`, and—when `FreeCADGui` is available—768 by 768 isometric, front,
+top and right PNG views. Preview-only runs remain snapshot-only because their
+native transaction is intentionally aborted. Callers can also pass owned files
+to `EpisodeStore.record_run(..., artifacts={...})`; all captured files are copied
 under `artifacts/`. Every sidecar is listed with its byte length and SHA-256
 digest in the manifest.
 
@@ -84,6 +87,15 @@ launch timed out because its script path contained a space and was not quoted as
 one argument. The bounded process was terminated, the argument was quoted, and
 the rerun passed workbench registration and construction of all evidence views.
 
-The initial recorder stores normalized snapshots. Native `.FCStd`, STEP and
-multi-view render capture will be connected by the native benchmark runner once
-it owns export paths and can finalize all artifacts in the same episode.
+The second data stage connected automatic native artifacts to the committed-run
+boundary. FreeCAD's native `saveCopy` preserves the parametric document, and the
+adapter exports only final solid-producing feature roots to STEP so consumed
+Boolean operands and intermediate features are not duplicated. GUI capture
+restores the previous camera after recording four standardized views.
+
+FreeCADCmd exposes a `FreeCADGui` module without an active GUI document on this
+installation. The first real headless capture therefore reported rendering as
+unavailable. This was classified as a warning rather than an export failure:
+headless runs retain `.FCStd` and STEP, while real GUI verification demonstrated
+all four PNG views. Both modes are represented truthfully in
+`artifact_capture.json`.

@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Protocol, runtime_checkable
 
+from cadrig.artifacts import ArtifactCapture
 from cadrig.contracts import (
     ActionPlan,
     AdapterMetadata,
@@ -29,3 +31,9 @@ class KernelAdapter(Protocol):
 
     def rollback(self, receipt_id: str) -> ExecutionReceipt:
         """Rollback a committed transaction when it is still safe to do so."""
+
+
+@runtime_checkable
+class ArtifactCaptureAdapter(Protocol):
+    def capture_artifacts(self, document_id: str, destination: Path) -> ArtifactCapture:
+        """Export replay and training artifacts from one committed native document."""

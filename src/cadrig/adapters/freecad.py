@@ -8,8 +8,14 @@ import math
 import re
 import uuid
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, ClassVar
 
+from cadrig.artifacts import (
+    ArtifactCapture,
+    ArtifactCaptureDiagnostic,
+    CapturedArtifact,
+)
 from cadrig.contracts import (
     ACTION_PLAN_SCHEMA_VERSION,
     Action,
@@ -341,6 +347,172 @@ class FreeCADKernelAdapter:
             before,
             after,
         )
+
+    def capture_artifacts(self, document_id: str, destination: Path) -> ArtifactCapture:
+        """Capture native, exchange and optional rendered evidence after commit."""
+
+        document = self._get_document(document_id)
+        if document is None:
+            return ArtifactCapture(
+                diagnostics=(
+                    ArtifactCaptureDiagnostic(
+                        "DOCUMENT_NOT_FOUND",
+                        f"cannot capture missing FreeCAD document {document_id}",
+                        "error",
+                    ),
+                )
+            )
+        destination.mkdir(parents=True, exist_ok=True)
+        artifacts: list[CapturedArtifact] = []
+        diagnostics: list[ArtifactCaptureDiagnostic] = []
+        try:
+            self._recompute_and_inspect(document)
+            native_path = destination / "output.FCStd"
+            document.saveCopy(str(native_path))
+            self._require_export(native_path, "FreeCAD native document")
+            artifacts.append(
+                CapturedArtifact(
+                    "output.FCStd",
+                    native_path,
+                    "application/x-freecad-document",
+                    "native_document",
+                )
+            )
+        except Exception as exc:  # noqa: BLE001 - preserve partial evidence on host failure.
+            diagnostics.append(
+                ArtifactCaptureDiagnostic(
+                    "FREECAD_NATIVE_CAPTURE_FAILED",
+                    str(exc) or type(exc).__name__,
+                    "error",
+                )
+            )
+
+        try:
+            export_objects = self._final_shape_objects(document)
+            if not export_objects:
+                raise RuntimeError("document has no final solid shape to export")
+            step_path = destination / "output.step"
+            self._part.export(export_objects, str(step_path))
+            self._require_export(step_path, "STEP document")
+            artifacts.append(
+                CapturedArtifact(
+                    "output.step",
+                    step_path,
+                    "model/step",
+                    "exchange_document",
+                )
+            )
+        except Exception as exc:  # noqa: BLE001 - preserve native data if STEP export fails.
+            diagnostics.append(
+                ArtifactCaptureDiagnostic(
+                    "FREECAD_STEP_CAPTURE_FAILED",
+                    str(exc) or type(exc).__name__,
+                    "error",
+                )
+            )
+
+        render_capture = self._capture_standard_views(document, destination / "renders")
+        artifacts.extend(render_capture.artifacts)
+        diagnostics.extend(render_capture.diagnostics)
+        return ArtifactCapture(tuple(artifacts), tuple(diagnostics))
+
+    def _capture_standard_views(self, document: Any, destination: Path) -> ArtifactCapture:
+        if self._gui is None:
+            return ArtifactCapture(
+                diagnostics=(
+                    ArtifactCaptureDiagnostic(
+                        "RENDER_CAPTURE_UNAVAILABLE",
+                        "FreeCADGui is unavailable; native and STEP artifacts remain valid",
+                    ),
+                )
+            )
+        try:
+            gui_document = self._gui.getDocument(document.Name)
+            view = gui_document.activeView()
+        except Exception as exc:  # noqa: BLE001 - GUI may not own the headless document.
+            return ArtifactCapture(
+                diagnostics=(
+                    ArtifactCaptureDiagnostic(
+                        "RENDER_CAPTURE_UNAVAILABLE",
+                        str(exc) or "FreeCAD GUI document is unavailable",
+                    ),
+                )
+            )
+
+        destination.mkdir(parents=True, exist_ok=True)
+        original_camera = None
+        try:
+            original_camera = view.getCamera()
+        except Exception:  # noqa: BLE001 - camera restoration is best effort.
+            original_camera = None
+        artifacts: list[CapturedArtifact] = []
+        diagnostics: list[ArtifactCaptureDiagnostic] = []
+        orientations = (
+            ("isometric", "viewAxonometric"),
+            ("front", "viewFront"),
+            ("top", "viewTop"),
+            ("right", "viewRight"),
+        )
+        try:
+            for name, method_name in orientations:
+                try:
+                    getattr(view, method_name)()
+                    view.fitAll()
+                    path = destination / f"{name}.png"
+                    view.saveImage(str(path), 768, 768, "Current")
+                    self._require_export(path, f"{name} render")
+                    artifacts.append(
+                        CapturedArtifact(
+                            f"renders/{name}.png",
+                            path,
+                            "image/png",
+                            f"render_{name}",
+                        )
+                    )
+                except Exception as exc:  # noqa: BLE001 - retain other successful views.
+                    diagnostics.append(
+                        ArtifactCaptureDiagnostic(
+                            "RENDER_CAPTURE_FAILED",
+                            f"{name}: {str(exc) or type(exc).__name__}",
+                        )
+                    )
+        finally:
+            if original_camera is not None:
+                try:
+                    view.setCamera(original_camera)
+                except Exception:  # noqa: BLE001 - capture must not alter CAD acceptance.
+                    diagnostics.append(
+                        ArtifactCaptureDiagnostic(
+                            "CAMERA_RESTORE_FAILED",
+                            "could not restore the pre-capture FreeCAD camera",
+                        )
+                    )
+        return ArtifactCapture(tuple(artifacts), tuple(diagnostics))
+
+    @staticmethod
+    def _final_shape_objects(document: Any) -> list[Any]:
+        candidates = []
+        for obj in document.Objects:
+            shape = getattr(obj, "Shape", None)
+            if shape is None or not hasattr(shape, "isNull") or shape.isNull():
+                continue
+            solids = getattr(shape, "Solids", ())
+            if not solids:
+                continue
+            candidates.append(obj)
+        candidate_ids = {id(obj) for obj in candidates}
+        consumed = {
+            id(child)
+            for parent in candidates
+            for child in getattr(parent, "OutList", ())
+            if id(child) in candidate_ids
+        }
+        return [obj for obj in candidates if id(obj) not in consumed]
+
+    @staticmethod
+    def _require_export(path: Path, description: str) -> None:
+        if not path.is_file() or path.stat().st_size <= 0:
+            raise RuntimeError(f"{description} exporter produced no data")
 
     def _preflight(self, action: Action, known_ids: set[str]) -> None:
         if action.kind is ActionKind.CREATE_DOCUMENT:

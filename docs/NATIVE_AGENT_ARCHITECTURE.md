@@ -62,6 +62,12 @@ before/after snapshots. `AgentTrace` adds the compiled contract, every proposed
 action graph, preview and commit receipts, verifier reports, repair feedback and
 rollback result in ordered state-machine events.
 
+After a verified commit, an adapter may implement the separate artifact-capture
+protocol. CADRIG records the native document, neutral exchange representation,
+renders and capture diagnostics inside the same immutable episode. Artifact
+capture occurs after acceptance and therefore cannot promote or reject geometry;
+preview and rollback outcomes never export a misleading committed document.
+
 ## Trust boundaries
 
 | Component | May interpret intent | May mutate CAD | May accept result |

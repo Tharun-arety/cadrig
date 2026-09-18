@@ -2,6 +2,7 @@
 
 from .action_graph import ActionGraphContext, ActionGraphPlanner, ActionPlanningError
 from .adapters.freecad import FreeCADKernelAdapter, FreeCADUnavailableError
+from .artifacts import ArtifactCapture, ArtifactCaptureDiagnostic, CapturedArtifact
 from .contract_compiler import ContractCompilationError, ContractCompiler, ContractContext
 from .contracts import (
     ACTION_PLAN_SCHEMA_VERSION,
@@ -62,6 +63,9 @@ __all__ = [
     "AgentRun",
     "AgentRunStatus",
     "AgentTrace",
+    "ArtifactCapture",
+    "ArtifactCaptureDiagnostic",
+    "CapturedArtifact",
     "ContractCompilationError",
     "ContractCompiler",
     "ContractContext",

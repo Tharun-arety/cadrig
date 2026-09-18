@@ -77,6 +77,13 @@ selection observation is simply omitted in that mode. Headless scripts must save
 the document explicitly after a successful applied result if persistence is
 desired.
 
+When the native agent is configured with an `EpisodeStore`, every verified
+commit automatically records a native `.FCStd` copy and final-solid STEP export.
+An interactive GUI run also records 768 by 768 isometric, front, top and right
+PNG views and restores the user's previous camera. FreeCADCmd records a
+`RENDER_CAPTURE_UNAVAILABLE` warning while retaining the native and STEP files.
+Artifact capture diagnostics never override the contract verifier's CAD outcome.
+
 ## Install the CADRIG workbench
 
 After installing the Python package, copy the bundled workbench into the active
