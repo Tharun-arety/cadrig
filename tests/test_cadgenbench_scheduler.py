@@ -5,8 +5,8 @@ from pathlib import Path
 
 import pytest
 
-from cadcopilot.benchmarks.cadgenbench import scheduler
-from cadcopilot.benchmarks.cadgenbench.scheduler import CadgenbenchCohortConfig, run_cohort
+from cadrig.benchmarks.cadgenbench import scheduler
+from cadrig.benchmarks.cadgenbench.scheduler import CadgenbenchCohortConfig, run_cohort
 
 
 def _checker(tmp_path: Path) -> Path:
@@ -72,9 +72,9 @@ def test_cohort_runs_isolated_tasks_and_accounts_actual_trace(
     assert result.total_tokens == 400
     assert result.cost_usd == pytest.approx(0.0028)
     assert len(calls) == 2
-    assert all(call["environ"]["CADCOPILOT_ATTEMPT_TOKEN_CAP"] == "500" for call in calls)
+    assert all(call["environ"]["CADRIG_ATTEMPT_TOKEN_CAP"] == "500" for call in calls)
     assert all(
-        str(call["environ"]["CADCOPILOT_PROVIDER_USAGE_PATH"]).endswith(
+        str(call["environ"]["CADRIG_PROVIDER_USAGE_PATH"]).endswith(
             "provider_usage.json"
         )
         for call in calls

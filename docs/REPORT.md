@@ -57,6 +57,35 @@ The FreeCAD workbench is a client of this engine rather than the benchmark job
 runner. This prevents GUI lifecycle and event-loop behavior from determining
 benchmark reproducibility.
 
+### 3.1 Native-agent replacement
+
+On 2026-09-18 the interactive alpha runtime was replaced with CADRIG's own
+contract-driven agent. The current source tree contains no vendored CAD-agent
+runtime. Earlier exploratory provenance remains visible in repository history
+and `THIRD_PARTY_NOTICES.md`, but no inherited ReAct loop, CQ translation layer,
+prompt set, session store, streaming implementation or agent UI is shipped.
+
+The native runtime introduces three explicit artifacts:
+
+1. `DesignContract` compiles the exact user intent into deterministic result
+   requirements and preservation invariants.
+2. A closed typed action graph limits the model to capabilities declared by the
+   selected backend adapter; arbitrary generated source is not an action.
+3. `AgentTrace` records ordered observe, compile, plan, preflight, preview,
+   verification, repair, commit and rollback evidence.
+
+The orchestrator always previews before commit. The model cannot declare success:
+only the independent `ContractVerifier` may accept a preview or applied result.
+Rejected previews provide structured feedback to a caller-bounded repair loop.
+Post-commit verification failure invokes the adapter's conflict-aware rollback.
+The FreeCAD workbench is now a thin client that displays the contract, action
+graph, verifier report and execution receipt produced by this same headless core.
+
+The replacement increased the complete automated suite to 129 passing tests.
+New adversarial cases cover changed-intent refusal, malformed predicates, absence
+of an arbitrary-code action, non-mutating preview, verifier-driven repair,
+repair-budget exhaustion and post-commit rollback.
+
 ## 4. Reproducibility controls
 
 The alpha harness records the model identifier, kernel backend, reasoning

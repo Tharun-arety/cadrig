@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from cadcopilot.benchmarks.cadgenbench import runner
+from cadrig.benchmarks.cadgenbench import runner
 
 
 def _config(tmp_path: Path) -> runner.CadgenbenchRunConfig:

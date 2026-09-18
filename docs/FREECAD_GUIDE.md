@@ -36,19 +36,29 @@ the `FreeCAD`, `Part` and `Sketcher` modules are importable.
 From a FreeCAD Python console or macro:
 
 ```python
-from cadcopilot import AdapterRegistry, CopilotAgent, CopilotExecutor, CopilotPlanner
-from cadcopilot.adapters.freecad import FreeCADKernelAdapter
-from cadcopilot.models import OpenAICompatibleClient
+from cadrig import (
+    ActionGraphPlanner,
+    AdapterRegistry,
+    ContractCompiler,
+    ExecutionEngine,
+    NativeCADAgent,
+)
+from cadrig.adapters.freecad import FreeCADKernelAdapter
+from cadrig.models import OpenAICompatibleClient
 
 registry = AdapterRegistry()
 registry.register(FreeCADKernelAdapter())
-executor = CopilotExecutor(registry)
+executor = ExecutionEngine(registry)
 model = OpenAICompatibleClient(
     base_url="http://localhost:1234/v1",
     model="my-model",
     response_format="json_object",
 )
-agent = CopilotAgent(executor, CopilotPlanner(model))
+agent = NativeCADAgent(
+    executor=executor,
+    compiler=ContractCompiler(model),
+    planner=ActionGraphPlanner(model),
+)
 result = agent.run(
     intent="Create a constrained 20 by 10 mm profile and extrude it 12 mm",
     adapter_id="freecad",
@@ -77,9 +87,10 @@ FreeCAD user profile:
 ```
 
 Restart FreeCAD and select **View → Workbench → CADRIG**. The dock provides
-bring-your-own-model settings, an editable macro and diff, static review,
-confirmed execution with backup and rollback, captured output, and error-driven
-repair. See [the macro guide](MACRO_GUIDE.md) for the workflow and safety boundary.
+bring-your-own-model settings, contract compilation, typed action-graph preview,
+independent verification, bounded repair and a complete execution receipt. It
+does not run model-generated Python. The separate macro command remains an
+optional review-only automation utility described in [the macro guide](MACRO_GUIDE.md).
 
 ## Geometry contract
 

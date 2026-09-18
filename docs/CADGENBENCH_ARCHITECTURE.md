@@ -395,7 +395,7 @@ usage data, never raw provider payloads.
 ## 10. Repository layout
 
 ```text
-src/cadcopilot/
+src/cadrig/
   engine/
     contracts.py
     orchestrator.py
@@ -434,7 +434,7 @@ src/cadcopilot/
   providers/
     base.py
     openai_compatible.py
-freecad_workbench/CADCopilot/
+freecad_workbench/CADRIG/
   ... thin job client and native apply/review UI ...
 tests/
   engine/
@@ -444,10 +444,10 @@ tests/
   benchmarks/
 ```
 
-The current `freecad_workbench/.../agent_runtime` contains useful provider,
-geometry-analysis and session logic, but it must not remain a second independent
-agent architecture. Reusable logic moves into `src/cadcopilot`; the workbench
-imports it as a client library.
+The FreeCAD workbench is a thin client of `src/cadrig`. There is one native agent
+architecture for interactive and headless execution: design-contract compilation,
+typed action-graph planning, deterministic preflight, independent verification,
+bounded repair, commit/rollback and replay-oriented receipts.
 
 ## 11. Artifact layout
 

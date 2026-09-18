@@ -2,13 +2,13 @@
 
 import json
 
-from cadcopilot.adapters.freecad import FreeCADKernelAdapter
-from cadcopilot.contracts import Action, ActionKind, ActionPlan, ExecutionStatus
+from cadrig.adapters.freecad import FreeCADKernelAdapter
+from cadrig.contracts import Action, ActionKind, ActionPlan, ExecutionStatus
 
 adapter = FreeCADKernelAdapter()
 plan = ActionPlan(
     plan_id="freecad-native-smoke",
-    document_id="CadCopilotSmoke",
+    document_id="CADRIGSmoke",
     base_revision=0,
     actions=(
         Action("create-document", ActionKind.CREATE_DOCUMENT),

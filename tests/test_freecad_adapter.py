@@ -1,7 +1,7 @@
 import copy
 
-from cadcopilot.adapters.freecad import FreeCADKernelAdapter
-from cadcopilot.contracts import Action, ActionKind, ActionPlan, ExecutionStatus
+from cadrig.adapters.freecad import FreeCADKernelAdapter
+from cadrig.contracts import Action, ActionKind, ActionPlan, ExecutionStatus
 
 
 class FakeVector:

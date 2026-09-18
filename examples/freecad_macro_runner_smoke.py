@@ -5,10 +5,10 @@ from pathlib import Path
 
 import FreeCAD as App
 
-from cadcopilot.macros import FreeCADMacroExecutor, MacroArtifact
+from cadrig.macros import FreeCADMacroExecutor, MacroArtifact
 
 document = App.newDocument("MacroRunnerSmoke")
-with tempfile.TemporaryDirectory(prefix="cadcopilot-runner-") as backup_directory:
+with tempfile.TemporaryDirectory(prefix="cadrig-runner-") as backup_directory:
     executor = FreeCADMacroExecutor(App, backup_root=Path(backup_directory))
     success = executor.execute(
         MacroArtifact(

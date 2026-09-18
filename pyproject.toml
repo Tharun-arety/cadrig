@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "cadrig"
-version = "0.1.0a1"
+version = "0.2.0a1"
 description = "Model- and kernel-agnostic execution harness for CAD agents"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -27,10 +27,9 @@ Issues = "https://github.com/Tharun-arety/cadrig/issues"
 dev = ["pytest>=8", "ruff>=0.6"]
 
 [project.scripts]
-cadrig = "cadcopilot.cli:main"
-cadcopilot = "cadcopilot.cli:main"
+cadrig = "cadrig.cli:main"
 
-# External adapters register factories in the `cadcopilot.adapters` entry-point
+# External adapters register factories in the `cadrig.adapters` entry-point
 # group; the core package intentionally declares no host-specific dependency.
 
 [tool.setuptools.packages.find]

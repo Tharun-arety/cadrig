@@ -2,7 +2,7 @@ import json
 
 import pytest
 
-from cadcopilot.macros import (
+from cadrig.macros import (
     FreeCADMacroExecutor,
     FreeCADMacroGenerator,
     MacroArtifact,

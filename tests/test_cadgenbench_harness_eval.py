@@ -5,8 +5,8 @@ from pathlib import Path
 
 import pytest
 
-from cadcopilot.benchmarks.cadgenbench.harness_eval import evaluate_harness
-from cadcopilot.cli import main
+from cadrig.benchmarks.cadgenbench.harness_eval import evaluate_harness
+from cadrig.cli import main
 
 
 def _write(path: Path, payload: dict[str, object]) -> None:

@@ -1,69 +1,56 @@
 # CADRIG architecture
 
-The benchmark-first generation and editing architecture is specified separately
-in [docs/CADGENBENCH_ARCHITECTURE.md](docs/CADGENBENCH_ARCHITECTURE.md). It adds a
-headless candidate-search engine behind this product-facing adapter architecture;
-the FreeCAD UI becomes a client of that engine rather than its execution host.
+CADRIG is a native, contract-driven CAD agent plus a reproducible execution and
+evaluation harness. The interactive workbench and headless CLI use the same
+state machine.
 
 ```text
-Copilot UI / CLI / API
-       |
-Context + user intent
-       v
-ModelClient (user-supplied model API)
-       |
-       +-----------------------------+
-       |                             |
-       v                             v
-Macro generator                 Typed planner
-       |                             |
-AST policy review               Plan validation
-       |                             |
-Reviewable .FCMacro             KernelAdapter
-       v
-Explicit user execution         Safe execution
-       |
-  +----+---------+-------------+
-  |              |             |
-FreeCAD       CadQuery      Other CAD host
-adapter       adapter       adapter/plugin
-  |              |             |
-Native host APIs and geometry kernels
+User / benchmark task
+        |
+        v
+ContractCompiler -----> DesignContract
+        |                 requirements + invariants
+        v
+ActionGraphPlanner ---> closed typed ActionPlan
+        |
+        v
+ExecutionEngine ------> adapter preflight
+        |                 transactional preview
+        v
+ContractVerifier -----> accept / structured rejection
+        |                        |
+        |                        +--> bounded repair --> re-plan
+        v
+transactional commit --> post-commit verification --> rollback on failure
+        |
+        v
+AgentTrace: contract + plans + receipts + verification + repair evidence
 ```
 
-## Ownership
+## Authority model
 
-The harness owns conversation, intent interpretation, planning, safety policy
-and audit history. A host adapter owns document observation, capability truth,
-native calls, rebuild checks and rollback. The CAD host remains the authority
-for its document and geometry.
+- The model may interpret intent and propose typed actions.
+- The model may not execute source code, mutate a CAD host or declare success.
+- The adapter is the only component that calls native CAD APIs.
+- The verifier is the only component that accepts a result.
+- The orchestrator enforces ordering, repair budgets, commit and rollback.
 
-The model is replaceable and untrusted. `ModelClient` translates one provider's
-API into a small completion boundary. `CopilotPlanner` supplies the current
-immutable document snapshot, scopes the response schema to the active adapter's
-capabilities, then independently checks document identity, revision and action
-kinds. `CopilotAgent` is the observe-plan-execute coordinator. It dry-runs by
-default and requires an explicit apply decision for mutation.
+## Public artifacts
 
-`FreeCADMacroGenerator` is the primary open-ended automation path. It asks the
-model for a structured macro artifact, parses the Python AST, reports unsafe
-imports and calls, and writes only `.FCMacro` files. Generation and execution
-are separate authority boundaries: saving a macro never executes it.
+- `DesignContract`: deterministic desired-state predicates and preservation invariants.
+- `ActionPlan`: capability-scoped, backend-neutral action graph.
+- `DocumentSnapshot`: immutable semantic observation of one revision.
+- `ExecutionReceipt`: transactional before/after evidence and diagnostics.
+- `AgentTrace`: ordered record of the entire state machine.
 
-## Core contracts
+## Package layout
 
-- `ActionPlan`: ordered closed actions against one exact document revision.
-- `DocumentSnapshot`: immutable semantic observation returned by a host.
-- `AdapterMetadata`: host identity and exact supported action kinds.
-- `ExecutionReceipt`: accepted/refused result with before/after snapshots and
-  diagnostics.
+The implementation lives under `src/cadrig`. CAD backends implement
+`cadrig.adapters.base.KernelAdapter` and register under the `cadrig.adapters`
+entry-point group. `freecad_workbench/CADRIG` is a thin client; it does not
+contain another agent runtime.
 
-The first contract version intentionally models only a small action vocabulary.
-New operations must be added as typed schema versions, not arbitrary scripts.
-
-## Process boundary
-
-The protocol does not require adapters to run in-process. A FreeCAD worker,
-desktop plugin or remote CAD service can expose the same messages over JSON-RPC,
-named pipes or another authenticated transport. Transport is replaceable and
-does not change execution authority.
+The complete protocol, repair behavior and trust boundaries are specified in
+[docs/NATIVE_AGENT_ARCHITECTURE.md](docs/NATIVE_AGENT_ARCHITECTURE.md). The
+benchmark engine is specified separately in
+[docs/CADGENBENCH_ARCHITECTURE.md](docs/CADGENBENCH_ARCHITECTURE.md).

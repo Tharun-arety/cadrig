@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from cadcopilot.benchmarks.cadgenbench.compose import compose_runs
+from cadrig.benchmarks.cadgenbench.compose import compose_runs
 
 
 def _source(root: Path, task_id: str, content: str) -> Path:

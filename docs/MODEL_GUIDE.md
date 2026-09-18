@@ -1,9 +1,9 @@
 # Bring-your-own-model guide
 
-Models are planning components, not execution authorities. A model receives a
-serialized document snapshot and the action vocabulary supported by the chosen
-CAD adapter. It returns one closed `ActionPlan`; the core checks and the CAD
-adapter validate that plan before any native API is called.
+Models are translation and planning components, not execution authorities. The
+native agent first compiles intent into a deterministic `DesignContract`, then
+plans a closed `ActionPlan` against the selected adapter's capabilities. The
+independent verifier—not the model—decides whether the preview may be committed.
 
 ## OpenAI-compatible endpoints
 
@@ -11,9 +11,9 @@ The built-in connector targets `<base-url>/chat/completions` and sends no API
 key unless the configured environment variable is present:
 
 ```powershell
-$env:CADCOPILOT_MODEL_BASE_URL = "https://your-provider.example/v1"
-$env:CADCOPILOT_MODEL = "your-model-id"
-$env:CADCOPILOT_MODEL_API_KEY = "your-key"
+$env:CADRIG_MODEL_BASE_URL = "https://your-provider.example/v1"
+$env:CADRIG_MODEL = "your-model-id"
+$env:CADRIG_MODEL_API_KEY = "your-key"
 cadrig ask "Add a 10 mm mounting boss" `
   --document active-part --adapter your-adapter
 ```
@@ -25,14 +25,23 @@ evaluating a model; this asks the adapter for a non-mutating dry run.
 
 ## Other model APIs
 
-Implement the small `cadcopilot.models.ModelClient` protocol and pass it to
-`CopilotPlanner`:
+Implement the small `cadrig.models.ModelClient` protocol and use it for the
+contract compiler and action-graph planner:
 
 ```python
-from cadcopilot import CopilotAgent, CopilotPlanner
+from cadrig import (
+    ActionGraphPlanner,
+    ContractCompiler,
+    ExecutionEngine,
+    NativeCADAgent,
+)
 
-planner = CopilotPlanner(MyModelClient())
-agent = CopilotAgent(executor, planner)
+model = MyModelClient()
+agent = NativeCADAgent(
+    executor=ExecutionEngine(registry),
+    compiler=ContractCompiler(model),
+    planner=ActionGraphPlanner(model),
+)
 result = agent.run(
     intent="Move these holes 5 mm inward",
     adapter_id="my-kernel",
@@ -47,7 +56,9 @@ secrets in prompts or action parameters.
 
 ## Trust boundary
 
-The core rejects malformed JSON, unknown contract fields, executable action
-kinds, changed document IDs, stale base revisions and actions the active kernel
-does not declare. The adapter remains responsible for parameter-level geometry
-validation, native transactionality, rebuild inspection and rollback.
+The core rejects malformed JSON, unknown contract fields, untestable predicates,
+executable action kinds, changed intent or document IDs, stale revisions and
+actions the active backend does not declare. The adapter remains responsible for
+parameter-level geometry validation, native transactionality, rebuild inspection
+and rollback. The `ContractVerifier` separately evaluates result requirements and
+preservation invariants.

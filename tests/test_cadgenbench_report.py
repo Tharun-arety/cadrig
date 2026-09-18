@@ -3,8 +3,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from cadcopilot.benchmarks.cadgenbench.report import report_runs, summarize_run
-from cadcopilot.cli import main
+from cadrig.benchmarks.cadgenbench.report import report_runs, summarize_run
+from cadrig.cli import main
 
 
 def _write_json(path: Path, payload: object) -> None:

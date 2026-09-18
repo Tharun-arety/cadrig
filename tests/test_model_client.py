@@ -1,6 +1,6 @@
 import json
 
-from cadcopilot.models import ModelMessage, OpenAICompatibleClient
+from cadrig.models import ModelMessage, OpenAICompatibleClient
 
 
 class FakeResponse:

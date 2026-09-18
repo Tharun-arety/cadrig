@@ -6,15 +6,15 @@ from pathlib import Path
 
 import pytest
 
-from cadcopilot.benchmarks.cadgenbench import matrix
-from cadcopilot.benchmarks.cadgenbench.matrix import (
+from cadrig.benchmarks.cadgenbench import matrix
+from cadrig.benchmarks.cadgenbench.matrix import (
     CadgenbenchMatrixConfig,
     ModelPricing,
     load_model_pricing,
     run_matrix,
 )
-from cadcopilot.benchmarks.cadgenbench.scheduler import CohortResult
-from cadcopilot.cli import build_parser
+from cadrig.benchmarks.cadgenbench.scheduler import CohortResult
+from cadrig.cli import build_parser
 
 
 def _config(tmp_path: Path, **changes: object) -> CadgenbenchMatrixConfig:

@@ -8,20 +8,20 @@ from PySide6 import QtCore, QtWidgets
 
 def open_workbench():
     try:
-        if "CADCopilotWorkbench" not in Gui.listWorkbenches():
+        if "CADRIGWorkbench" not in Gui.listWorkbenches():
             raise RuntimeError(
                 "CADRIG is not registered in this FreeCAD profile. "
                 "Run freecad_workbench/install.py with FreeCAD's bundled Python."
             )
-        Gui.activateWorkbench("CADCopilotWorkbench")
-        panel = getattr(Gui, "_cadcopilot_agent_panel", None)
-        if panel is None:
-            raise RuntimeError("CADRIG did not create its chat panel")
+        Gui.activateWorkbench("CADRIGWorkbench")
         window = Gui.getMainWindow()
+        dock = window.findChild(QtWidgets.QDockWidget, "CADRIGNativeAgentDock")
+        if dock is None:
+            raise RuntimeError("CADRIG did not create its native-agent panel")
         window.show()
         window.raise_()
         window.activateWindow()
-        panel.raise_()
+        dock.raise_()
     except Exception:  # noqa: BLE001 - show startup diagnostics inside FreeCAD.
         QtWidgets.QMessageBox.critical(
             Gui.getMainWindow(),

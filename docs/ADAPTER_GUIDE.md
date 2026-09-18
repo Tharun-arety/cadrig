@@ -6,8 +6,8 @@ desktop plugin or a remote CAD service. It must implement `KernelAdapter`.
 An independently distributed adapter declares a factory entry point:
 
 ```toml
-[project.entry-points."cadcopilot.adapters"]
-freecad = "cadcopilot_freecad:make_adapter"
+[project.entry-points."cadrig.adapters"]
+freecad = "cadrig_freecad:make_adapter"
 ```
 
 The factory takes no arguments and returns one adapter instance. The core loads

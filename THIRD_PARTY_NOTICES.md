@@ -1,17 +1,17 @@
 # Third-party notices
 
-## CadAgent agent runtime
+The current CADRIG source tree contains no vendored third-party CAD-agent runtime.
 
-The chat UI, ReAct/tool-calling loop, FreeCAD execution helpers, document
-analysis, quality gates, snapshots, session management and vision integration
-under `freecad_workbench/CADCopilot/agent_runtime` are derived from
-[SSSSSia/CadAgent](https://github.com/SSSSSia/CadAgent), commit
-`a73168b1f2f9ea47b78eef82506069a8e0894485`.
+## Historical development note
 
-CadAgent is Copyright (c) 2026 CadAgent Contributors and licensed under the MIT
-License. A complete copy is included at
-`freecad_workbench/CADCopilot/agent_runtime/LICENSE`.
+Pre-native alpha commits temporarily included MIT-licensed runtime files from
+[SSSSSia/CadAgent](https://github.com/SSSSSia/CadAgent) while CADRIG's execution
+requirements were being explored. Those files, their ReAct/CQ runtime and their
+UI were removed before the native CADRIG agent architecture was introduced.
+Repository history retains the original attribution and license record; it has
+not been rewritten or concealed.
 
-CADRIG modifications include workbench integration, product branding,
-installation, compatibility hardening and coexistence with the kernel-neutral
-typed action and macro safety layers.
+The current agent is implemented under `src/cadrig` as a contract compiler,
+typed action-graph planner, deterministic orchestrator, independent verifier,
+bounded repair loop and replay-oriented trace system. The FreeCAD workbench is
+a thin client of that native implementation.

@@ -1,6 +1,6 @@
 import pytest
 
-from cadcopilot.contracts import ActionPlan, ContractError
+from cadrig.contracts import ActionPlan, ContractError
 
 
 def valid_payload():

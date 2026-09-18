@@ -1,5 +1,5 @@
-from cadcopilot.adapters.memory import MemoryKernelAdapter
-from cadcopilot.contracts import Action, ActionKind, ActionPlan, ExecutionStatus
+from cadrig.adapters.memory import MemoryKernelAdapter
+from cadrig.contracts import Action, ActionKind, ActionPlan, ExecutionStatus
 
 
 def plan(plan_id, revision, *actions):

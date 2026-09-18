@@ -5,9 +5,38 @@ from shutil import copytree, ignore_patterns, rmtree
 
 import FreeCAD as App
 
-source = Path(__file__).resolve().parent / "CADCopilot"
-destination = Path(str(App.getUserAppDataDir())) / "Mod" / "CADCopilot"
+source = Path(__file__).resolve().parent / "CADRIG"
+module_root = Path(str(App.getUserAppDataDir())) / "Mod"
+destination = module_root / "CADRIG"
 destination.mkdir(parents=True, exist_ok=True)
+
+# Remove this project's old pre-native installation only when its registration
+# file identifies it as CADRIG.  An unrelated user module with the same legacy
+# folder name is left untouched.
+legacy_destination = module_root / "CADCopilot"
+legacy_init = legacy_destination / "InitGui.py"
+if legacy_init.is_file():
+    try:
+        legacy_source = legacy_init.read_text(encoding="utf-8", errors="ignore")
+        is_cadrig_legacy = (
+            "CADRIG" in legacy_source
+            or (
+                "Open CAD Copilot" in legacy_source
+                and (legacy_destination / "agent_runtime").is_dir()
+            )
+        )
+    except OSError:
+        is_cadrig_legacy = False
+    if is_cadrig_legacy:
+        rmtree(legacy_destination)
+        print(f"Removed legacy CADRIG workbench from {legacy_destination}")
+
+# Remove the pre-native alpha runtime before copying.  It is intentionally not
+# part of CADRIG's current source tree and copytree would otherwise leave an old
+# installed directory behind.
+obsolete_runtime = destination / "agent_runtime"
+if obsolete_runtime.is_dir():
+    rmtree(obsolete_runtime)
 copytree(
     source,
     destination,
@@ -28,14 +57,8 @@ for bytecode in destination.rglob("*.pyc"):
     if bytecode.is_file():
         bytecode.unlink()
 
-for obsolete in (
-    destination / "agent_runtime" / "resources" / "icons" / "CadAgentWorkbench.svg",
-    destination / "agent_runtime" / "README_EN.md",
-):
-    if obsolete.is_file():
-        obsolete.unlink()
 general_preferences = App.ParamGet("User parameter:BaseApp/Preferences/General")
-general_preferences.SetString("AutoloadModule", "CADCopilotWorkbench")
-general_preferences.SetString("LastModule", "CADCopilotWorkbench")
+general_preferences.SetString("AutoloadModule", "CADRIGWorkbench")
+general_preferences.SetString("LastModule", "CADRIGWorkbench")
 print(f"Installed CADRIG workbench to {destination}")
 print("Configured CADRIG as the startup workbench")

@@ -5,13 +5,13 @@ from pathlib import Path
 
 import pytest
 
-from cadcopilot.benchmarks.cadgenbench import batch_plan
-from cadcopilot.benchmarks.cadgenbench.batch_plan import (
+from cadrig.benchmarks.cadgenbench import batch_plan
+from cadrig.benchmarks.cadgenbench.batch_plan import (
     CadgenbenchBatchPlanConfig,
     create_batch_plan,
     run_planned_batch,
 )
-from cadcopilot.benchmarks.cadgenbench.scheduler import CohortResult
+from cadrig.benchmarks.cadgenbench.scheduler import CohortResult
 
 
 def _dataset(tmp_path: Path) -> Path:

@@ -1,7 +1,7 @@
 import pytest
 
-from cadcopilot.adapters.memory import MemoryKernelAdapter
-from cadcopilot.registry import AdapterRegistry
+from cadrig.adapters.memory import MemoryKernelAdapter
+from cadrig.registry import AdapterRegistry
 
 
 def test_registry_reports_capabilities_and_rejects_duplicates():
@@ -21,7 +21,7 @@ def test_registry_discovers_external_adapter_factories(monkeypatch):
             return MemoryKernelAdapter
 
     monkeypatch.setattr(
-        "cadcopilot.registry.entry_points",
+        "cadrig.registry.entry_points",
         lambda **kwargs: (FakeEntryPoint(),),
     )
     registry = AdapterRegistry()

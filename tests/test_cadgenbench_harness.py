@@ -8,20 +8,20 @@ from types import SimpleNamespace
 
 import pytest
 
-from cadcopilot.benchmarks.cadgenbench import brep_fallback, mesh_fallback, official_cli
-from cadcopilot.benchmarks.cadgenbench.compat import (
+from cadrig.benchmarks.cadgenbench import brep_fallback, mesh_fallback, official_cli
+from cadrig.benchmarks.cadgenbench.compat import (
     completion_token_allowance,
     extract_code_blocks_tolerant,
 )
-from cadcopilot.benchmarks.cadgenbench.dataset import find_sanity_script
-from cadcopilot.benchmarks.cadgenbench.mesh_fallback import _validate_terminal_edit
-from cadcopilot.benchmarks.cadgenbench.package import package_run
-from cadcopilot.benchmarks.cadgenbench.runner import (
+from cadrig.benchmarks.cadgenbench.dataset import find_sanity_script
+from cadrig.benchmarks.cadgenbench.mesh_fallback import _validate_terminal_edit
+from cadrig.benchmarks.cadgenbench.package import package_run
+from cadrig.benchmarks.cadgenbench.runner import (
     CadgenbenchRunConfig,
     build_baseline_command,
     run_official_baseline,
 )
-from cadcopilot.benchmarks.cadgenbench.sanity import verify_run
+from cadrig.benchmarks.cadgenbench.sanity import verify_run
 
 
 def _strict_fence_extractor(text: str, lang: str) -> list[str]:
@@ -150,7 +150,7 @@ def test_edit_inspection_budget_warns_then_stops_before_another_call(
     assert "inspection budget is exhausted" in feedback
     assert official_cli._validation_state.inspection_only_edit_turn_count == 2
 
-    monkeypatch.setenv("CADCOPILOT_ATTEMPT_TOKEN_CAP", "100000")
+    monkeypatch.setenv("CADRIG_ATTEMPT_TOKEN_CAP", "100000")
     monkeypatch.setattr(official_cli._validation_state, "ever_passed", False, raising=False)
     monkeypatch.setattr(
         official_cli._validation_state,
@@ -1167,11 +1167,11 @@ def test_provider_usage_ledger_persists_rejected_over_cap_call(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     ledger = tmp_path / "provider_usage.json"
-    monkeypatch.setenv("CADCOPILOT_PROVIDER_USAGE_PATH", str(ledger))
-    monkeypatch.setenv("CADCOPILOT_ATTEMPT_TOKEN_CAP", "10000")
+    monkeypatch.setenv("CADRIG_PROVIDER_USAGE_PATH", str(ledger))
+    monkeypatch.setenv("CADRIG_ATTEMPT_TOKEN_CAP", "10000")
     monkeypatch.setattr(official_cli._validation_state, "ever_passed", False, raising=False)
     client = SimpleNamespace(
-        _cadcopilot_consumed_tokens=4_000,
+        _cadrig_consumed_tokens=4_000,
         count_tokens=lambda _messages: 500,
     )
 
@@ -1204,7 +1204,7 @@ def test_provider_usage_ledger_persists_rejected_over_cap_call(
 def test_no_code_provider_response_downgrades_later_reasoning(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv("CADCOPILOT_ATTEMPT_TOKEN_CAP", "100000")
+    monkeypatch.setenv("CADRIG_ATTEMPT_TOKEN_CAP", "100000")
     monkeypatch.setattr(
         official_cli._validation_state,
         "no_code_provider_response_count",
@@ -1218,7 +1218,7 @@ def test_no_code_provider_response_downgrades_later_reasoning(
         raising=False,
     )
     client = SimpleNamespace(
-        _cadcopilot_consumed_tokens=0,
+        _cadrig_consumed_tokens=0,
         count_tokens=lambda _messages: 100,
     )
     efforts: list[str] = []
@@ -1259,12 +1259,12 @@ def test_no_code_provider_response_downgrades_later_reasoning(
 def test_token_cap_stops_gracefully_after_a_strict_valid_candidate(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv("CADCOPILOT_ATTEMPT_TOKEN_CAP", "100")
+    monkeypatch.setenv("CADRIG_ATTEMPT_TOKEN_CAP", "100")
     monkeypatch.setattr(official_cli._validation_state, "ever_passed", True, raising=False)
     monkeypatch.setattr(official_cli._validation_state, "budget_stop", False, raising=False)
     client = SimpleNamespace(
         model="test/model",
-        _cadcopilot_consumed_tokens=95,
+        _cadrig_consumed_tokens=95,
         count_tokens=lambda _messages: 10,
     )
 
@@ -1279,12 +1279,12 @@ def test_token_cap_stops_gracefully_after_a_strict_valid_candidate(
 def test_prompt_margin_stops_before_an_estimation_boundary_call(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv("CADCOPILOT_ATTEMPT_TOKEN_CAP", "10_000")
+    monkeypatch.setenv("CADRIG_ATTEMPT_TOKEN_CAP", "10_000")
     monkeypatch.setattr(official_cli._validation_state, "ever_passed", True, raising=False)
     monkeypatch.setattr(official_cli._validation_state, "budget_stop", False, raising=False)
     client = SimpleNamespace(
         model="test/model",
-        _cadcopilot_consumed_tokens=4_000,
+        _cadrig_consumed_tokens=4_000,
         count_tokens=lambda _messages: 3_000,
     )
 
@@ -1301,7 +1301,7 @@ def test_prompt_margin_stops_before_an_estimation_boundary_call(
 def test_prompt_margin_calibrates_from_provider_usage(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv("CADCOPILOT_ATTEMPT_TOKEN_CAP", "25_000")
+    monkeypatch.setenv("CADRIG_ATTEMPT_TOKEN_CAP", "25_000")
     monkeypatch.setattr(
         official_cli._validation_state,
         "inspection_only_edit_turn_count",
@@ -1315,7 +1315,7 @@ def test_prompt_margin_calibrates_from_provider_usage(
         raising=False,
     )
     client = SimpleNamespace(
-        _cadcopilot_consumed_tokens=0,
+        _cadrig_consumed_tokens=0,
         count_tokens=lambda _messages: 1_000,
     )
     max_tokens_seen: list[int] = []
@@ -1353,13 +1353,13 @@ def test_rejected_provider_overrun_preserves_prior_valid_candidate(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     ledger = tmp_path / "provider_usage.json"
-    monkeypatch.setenv("CADCOPILOT_PROVIDER_USAGE_PATH", str(ledger))
-    monkeypatch.setenv("CADCOPILOT_ATTEMPT_TOKEN_CAP", "10_000")
+    monkeypatch.setenv("CADRIG_PROVIDER_USAGE_PATH", str(ledger))
+    monkeypatch.setenv("CADRIG_ATTEMPT_TOKEN_CAP", "10_000")
     monkeypatch.setattr(official_cli._validation_state, "ever_passed", True, raising=False)
     monkeypatch.setattr(official_cli._validation_state, "budget_stop", False, raising=False)
     client = SimpleNamespace(
         model="test/model",
-        _cadcopilot_consumed_tokens=1_000,
+        _cadrig_consumed_tokens=1_000,
         count_tokens=lambda _messages: 1_000,
     )
 
@@ -1384,12 +1384,12 @@ def test_rejected_provider_overrun_preserves_prior_valid_candidate(
 def test_token_cap_still_fails_closed_without_a_valid_candidate(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv("CADCOPILOT_ATTEMPT_TOKEN_CAP", "100")
+    monkeypatch.setenv("CADRIG_ATTEMPT_TOKEN_CAP", "100")
     monkeypatch.setattr(official_cli._validation_state, "ever_passed", False, raising=False)
     monkeypatch.setattr(official_cli._validation_state, "budget_stop", False, raising=False)
     client = SimpleNamespace(
         model="test/model",
-        _cadcopilot_consumed_tokens=95,
+        _cadrig_consumed_tokens=95,
         count_tokens=lambda _messages: 10,
     )
 

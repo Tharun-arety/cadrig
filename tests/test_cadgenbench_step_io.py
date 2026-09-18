@@ -6,7 +6,7 @@ import build123d
 import pytest
 from build123d import Box
 
-from cadcopilot.benchmarks.cadgenbench.step_io import robust_export_step
+from cadrig.benchmarks.cadgenbench.step_io import robust_export_step
 
 
 def test_robust_export_uses_build123d_when_available(tmp_path: Path) -> None:
