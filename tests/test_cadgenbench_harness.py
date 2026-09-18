@@ -122,6 +122,44 @@ Solids:     1
     assert official_cli._validation_state.passed is True
 
 
+def test_edit_inspection_budget_warns_then_stops_before_another_call(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        official_cli,
+        "_strict_auto_validate_and_render",
+        lambda *_args, **_kwargs: ("no candidate", None),
+    )
+    monkeypatch.setattr(official_cli._validation_state, "is_editing", True, raising=False)
+    monkeypatch.setattr(
+        official_cli._validation_state,
+        "inspection_only_edit_turn_count",
+        0,
+        raising=False,
+    )
+    execution = SimpleNamespace(success=True, files_produced={}, code="inspect()")
+
+    official_cli._auto_validate_and_render_strict(tmp_path, execution)
+    feedback, _ = official_cli._auto_validate_and_render_strict(tmp_path, execution)
+
+    assert "inspection budget is exhausted" in feedback
+    assert official_cli._validation_state.inspection_only_edit_turn_count == 2
+
+    monkeypatch.setenv("CADCOPILOT_ATTEMPT_TOKEN_CAP", "100000")
+    monkeypatch.setattr(official_cli._validation_state, "ever_passed", False, raising=False)
+    monkeypatch.setattr(
+        official_cli._validation_state,
+        "inspection_only_edit_turn_count",
+        official_cli._EDIT_INSPECTION_HARD_LIMIT,
+        raising=False,
+    )
+    client = SimpleNamespace(count_tokens=lambda _messages: 100)
+    with pytest.raises(RuntimeError, match="inspection budget exhausted"):
+        official_cli._complete_with_cap(
+            client, [], max_tokens=16_000, reasoning_effort="medium"
+        )
+
+
 def test_explicit_each_target_count_and_execution_evidence() -> None:
     task = (
         "For each of the four non-circular pockets, bring their walls inward "
@@ -282,6 +320,33 @@ def test_explicit_blend_radius_transition_requires_old_to_new_face_change() -> N
     assert passed is False
     assert "18 mm: 2->3" in reason
     assert official_cli._blend_radius_transition_passed(
+        before, correct, transition
+    )[0] is True
+
+
+def test_explicit_hole_spacing_requires_relocation_of_the_named_pair() -> None:
+    transition = official_cli._explicit_hole_spacing_transition(
+        "There are two holes (axes collinear with Z) aligned along the X axis. "
+        "Increase their spacing from 20mm apart center-to-center to 30mm apart."
+    )
+    assert transition == (2, "Z", "X", 20.0, 30.0)
+    old_left = (3.0, 0.0, 0.0, 1.0, 0.0, 5.0, 0.0)
+    old_right = (3.0, 0.0, 0.0, 1.0, 20.0, 5.0, 0.0)
+    new_left = (3.0, 0.0, 0.0, 1.0, -5.0, 5.0, 0.0)
+    new_right = (3.0, 0.0, 0.0, 1.0, 25.0, 5.0, 0.0)
+    unrelated = (7.0, 0.0, 1.0, 0.0, 4.0, 0.0, 8.0)
+    before = {"analytic_cylinder_axes": (old_left, old_right, unrelated)}
+    proxy_cut = {
+        "analytic_cylinder_axes": (old_left, old_right, unrelated, new_right)
+    }
+    correct = {"analytic_cylinder_axes": (new_left, new_right, unrelated)}
+
+    passed, reason = official_cli._hole_spacing_transition_passed(
+        before, proxy_cut, transition
+    )
+    assert passed is False
+    assert "removed=0 added=1" in reason
+    assert official_cli._hole_spacing_transition_passed(
         before, correct, transition
     )[0] is True
 
@@ -692,6 +757,7 @@ def test_agent_wrapper_copies_mesh_sidecar_and_adds_generic_guidance(
     assert "rejected as a no-op" in str(captured["description"])
     assert "source outer extents" in str(captured["description"])
     assert "old-radius face" in str(captured["description"])
+    assert "old analytic cylinder axes" in str(captured["description"])
     assert "at most two distinct execution turns" in str(captured["description"])
     assert "translate_planar_annulus_mesh_region_to_step" in str(
         captured["description"]
@@ -1153,6 +1219,57 @@ def test_prompt_margin_stops_before_an_estimation_boundary_call(
 
     assert completion.total_tokens == 0
     assert official_cli._validation_state.budget_stop is True
+
+
+def test_prompt_margin_calibrates_from_provider_usage(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("CADCOPILOT_ATTEMPT_TOKEN_CAP", "25_000")
+    monkeypatch.setattr(
+        official_cli._validation_state,
+        "inspection_only_edit_turn_count",
+        0,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        official_cli._validation_state,
+        "prompt_margin_calibration_count",
+        0,
+        raising=False,
+    )
+    client = SimpleNamespace(
+        _cadcopilot_consumed_tokens=0,
+        count_tokens=lambda _messages: 1_000,
+    )
+    max_tokens_seen: list[int] = []
+    responses = iter(
+        (
+            SimpleNamespace(
+                content="```python\nprint('first')\n```",
+                prompt_tokens=10_000,
+                completion_tokens=100,
+                total_tokens=10_100,
+            ),
+            SimpleNamespace(
+                content="```python\nprint('second')\n```",
+                prompt_tokens=1_500,
+                completion_tokens=500,
+                total_tokens=2_000,
+            ),
+        )
+    )
+
+    def complete(_client: object, _messages: object, **kwargs: object) -> object:
+        max_tokens_seen.append(int(kwargs["max_tokens"]))
+        return next(responses)
+
+    monkeypatch.setattr(official_cli, "_strict_llm_complete", complete)
+    official_cli._complete_with_cap(client, [], max_tokens=16_000)
+    official_cli._complete_with_cap(client, [], max_tokens=16_000)
+
+    assert max_tokens_seen == [16_000, 2_852]
+    assert client._cadrig_adaptive_prompt_margin_tokens == 11_048
+    assert official_cli._validation_state.prompt_margin_calibration_count == 1
 
 
 def test_rejected_provider_overrun_preserves_prior_valid_candidate(

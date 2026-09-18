@@ -381,6 +381,32 @@ It consequently failed closed with no published candidate. Batch 6 used
 excluded, and only fixtures 108 and 140 are retained as local replacement
 candidates pending official scoring.
 
+The seventh improvement cohort deliberately mixed simple generation fixture
+106, complex generation fixture 117 and two-hole-spacing edit fixture 204.
+Fixture 117 produced a one-solid, 55-face candidate through eight executable
+turns. An initial sandbox-blocked launch left fixture 106 conservatively
+reserved but with zero provider receipts; its clean retry produced a two-solid,
+54-face candidate. After one 15,996-token response without code, the adaptive
+controller lowered all subsequent calls to low reasoning and recovered with a
+1,231-token executable response. The accepted 106 and 117 artifacts form a
+two-candidate composition that passed strict verification.
+
+Fixture 204 first spent seven inspection-only turns and crossed its token cap
+by 406 provider-reported tokens without a candidate. CADRIG now calibrates its
+prompt safety margin from the discrepancy between local estimates and each
+provider receipt. Editing runs also receive a controller-enforced inspection
+budget: after two non-producing executions, later calls use low reasoning and
+a 4,096-token response ceiling; a fifth inspection is refused. The controlled
+retry completed in 72,061 tokens, but semantic audit found that it made one
+arbitrary cylindrical cut instead of relocating the named pair. A new explicit
+hole-spacing contract requires the old analytic cylinder axes to disappear and
+the requested number of new axes to demonstrate both the old and new stated
+center spacing. A final autonomous run made five structurally exportable but
+semantically rejected attempts and failed closed. Across the initial cohort and
+two repairs, Batch 7 used 478,269 provider-accounted tokens and $1.662088; the
+interrupted zero-receipt attempt additionally retains its conservative
+120,000-token, $1.44 scheduler reservation. Fixture 204 remains excluded.
+
 These results demonstrate pipeline viability, not statistical benchmark quality
 or state-of-the-art performance.
 

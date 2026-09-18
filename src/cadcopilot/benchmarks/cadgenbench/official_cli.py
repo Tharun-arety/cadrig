@@ -30,6 +30,9 @@ _recovered_code_hashes: set[str] = set()
 _TOKEN_CAP_ENV = "CADCOPILOT_ATTEMPT_TOKEN_CAP"
 _USAGE_LEDGER_ENV = "CADCOPILOT_PROVIDER_USAGE_PATH"
 _PROMPT_TOKEN_MARGIN = 4_096
+_PROMPT_CALIBRATION_BUFFER = 2_048
+_EDIT_INSPECTION_SOFT_LIMIT = 2
+_EDIT_INSPECTION_HARD_LIMIT = 4
 _validation_state = threading.local()
 _CANDIDATE_NAMES = ("output.step", "output.stp")
 _COUNT_WORDS = {
@@ -108,6 +111,10 @@ Editing semantic-completeness contract:
 - For an explicit analytic blend/fillet radius transition, the old-radius face
   count must decrease and the new-radius face count must increase. Adding a
   separate ring with the new radius while retaining the old blend is rejected.
+- For an explicit multi-hole spacing transition, relocate every named hole:
+  old analytic cylinder axes must disappear and the requested number of new
+  axes must form the stated center-to-center spacing. One arbitrary extra cut
+  is not an acceptable substitute.
 - Spend at most two distinct execution turns on feature inspection. If exact
   analytic topology is unavailable but plausible split/tessellated faces were
   found, do not repeat the same search with looser predicates. Rank candidates
@@ -198,6 +205,7 @@ def _shape_edit_signature(shape: Any) -> dict[str, Any]:
         "solid_count": len(shape.solids()),
         "face_areas": tuple(sorted(float(face.area) for face in shape.faces())),
         "analytic_blend_radii": _analytic_blend_radii(shape),
+        "analytic_cylinder_axes": _analytic_cylinder_axes(shape),
     }
 
 
@@ -216,6 +224,43 @@ def _analytic_blend_radii(shape: Any) -> tuple[float, ...]:
         elif surface.GetType() == GeomAbs_Torus:
             radii.append(float(surface.Torus().MinorRadius()))
     return tuple(sorted(radii))
+
+
+def _analytic_cylinder_axes(
+    shape: Any,
+) -> tuple[tuple[float, float, float, float, float, float, float], ...]:
+    from OCP.BRepAdaptor import BRepAdaptor_Surface
+    from OCP.GeomAbs import GeomAbs_Cylinder
+
+    axes = set()
+    for face in shape.faces():
+        wrapped = getattr(face, "wrapped", None)
+        if wrapped is None:
+            continue
+        surface = BRepAdaptor_Surface(wrapped)
+        if surface.GetType() != GeomAbs_Cylinder:
+            continue
+        cylinder = surface.Cylinder()
+        direction = cylinder.Axis().Direction()
+        vector = [float(direction.X()), float(direction.Y()), float(direction.Z())]
+        first_nonzero = next((value for value in vector if abs(value) > 1.0e-8), 1.0)
+        if first_nonzero < 0:
+            vector = [-value for value in vector]
+        location = cylinder.Location()
+        point = [float(location.X()), float(location.Y()), float(location.Z())]
+        projection = sum(value * component for value, component in zip(point, vector))
+        anchor = [
+            value - projection * component
+            for value, component in zip(point, vector, strict=True)
+        ]
+        axes.add(
+            (
+                round(float(cylinder.Radius()), 3),
+                *(round(value, 4) for value in vector),
+                *(round(value, 3) for value in anchor),
+            )
+        )
+    return tuple(sorted(axes))
 
 
 def _explicit_blend_radius_transition(
@@ -261,6 +306,100 @@ def _blend_radius_transition_passed(
     )
 
 
+def _explicit_hole_spacing_transition(
+    task_description: str,
+) -> tuple[int, str, str, float, float] | None:
+    count_match = re.search(
+        r"\b(one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+holes?\b",
+        task_description,
+        flags=re.IGNORECASE,
+    )
+    hole_axis_match = re.search(
+        r"\baxes?\s+(?:are\s+)?collinear\s+with\s+(?:the\s+)?([xyz])\b",
+        task_description,
+        flags=re.IGNORECASE,
+    )
+    alignment_match = re.search(
+        r"\baligned\s+along\s+(?:the\s+)?([xyz])(?:\s+axis)?\b",
+        task_description,
+        flags=re.IGNORECASE,
+    )
+    spacing_match = re.search(
+        r"\bspacing\s+from\s+([0-9]+(?:\.[0-9]+)?)\s*mm"
+        r"(?:\s+apart)?(?:\s+center-to-center)?\s+to\s+"
+        r"([0-9]+(?:\.[0-9]+)?)\s*mm\b",
+        task_description,
+        flags=re.IGNORECASE,
+    )
+    if not all((count_match, hole_axis_match, alignment_match, spacing_match)):
+        return None
+    assert count_match is not None
+    assert hole_axis_match is not None
+    assert alignment_match is not None
+    assert spacing_match is not None
+    raw_count = count_match.group(1).lower()
+    count = _COUNT_WORDS.get(raw_count, int(raw_count) if raw_count.isdigit() else 0)
+    return (
+        count,
+        hole_axis_match.group(1).upper(),
+        alignment_match.group(1).upper(),
+        float(spacing_match.group(1)),
+        float(spacing_match.group(2)),
+    )
+
+
+def _hole_spacing_transition_passed(
+    before: dict[str, Any],
+    after: dict[str, Any],
+    transition: tuple[int, str, str, float, float],
+) -> tuple[bool, str]:
+    count, hole_axis, alignment_axis, old_spacing, new_spacing = transition
+    axis_index = {"X": 1, "Y": 2, "Z": 3}[hole_axis]
+    coordinate_index = {"X": 4, "Y": 5, "Z": 6}[alignment_axis]
+    lateral_indices = [
+        index
+        for axis, index in {"X": 4, "Y": 5, "Z": 6}.items()
+        if axis not in {hole_axis, alignment_axis}
+    ]
+
+    def matching_axes(signature: dict[str, Any]) -> set[tuple[float, ...]]:
+        return {
+            tuple(axis)
+            for axis in signature["analytic_cylinder_axes"]
+            if abs(abs(float(axis[axis_index])) - 1.0) <= 1.0e-3
+        }
+
+    def has_spacing_pair(axes: set[tuple[float, ...]], spacing: float) -> bool:
+        unique_locations = {tuple(axis[4:7]) for axis in axes}
+        locations = sorted(unique_locations)
+        for first_index, first in enumerate(locations):
+            for second in locations[first_index + 1 :]:
+                if abs(abs(first[coordinate_index - 4] - second[coordinate_index - 4]) - spacing) > 1.0:
+                    continue
+                if all(
+                    abs(first[index - 4] - second[index - 4]) <= 1.0
+                    for index in lateral_indices
+                ):
+                    return True
+        return False
+
+    source_axes = matching_axes(before)
+    candidate_axes = matching_axes(after)
+    removed = source_axes - candidate_axes
+    added = candidate_axes - source_axes
+    old_pair = has_spacing_pair(removed, old_spacing)
+    new_pair = has_spacing_pair(added, new_spacing)
+    passed = len(removed) >= count and len(added) >= count and old_pair and new_pair
+    return (
+        passed,
+        (
+            f"analytic {hole_axis}-axis hole transition removed={len(removed)} "
+            f"added={len(added)}; {alignment_axis}-spacing "
+            f"{old_spacing:g}->{new_spacing:g} mm pairs={old_pair}->{new_pair}"
+        ),
+    )
+
+
 def _relative_delta(first: float, second: float) -> float:
     return abs(first - second) / max(abs(first), abs(second), 1.0)
 
@@ -272,6 +411,7 @@ def _editing_candidate_changed(
     preserve_solid_count: bool = True,
     preserve_extents: bool = False,
     required_radius_transition: tuple[float, float] | None = None,
+    required_hole_spacing_transition: tuple[int, str, str, float, float] | None = None,
 ) -> tuple[bool, str, str]:
     """Reject operation-neutral STEP rewrites using kernel-level shape signatures."""
     from build123d import import_step
@@ -332,6 +472,12 @@ def _editing_candidate_changed(
         )
         if not radius_passed:
             return False, radius_reason, "topology_violation"
+    if required_hole_spacing_transition is not None:
+        spacing_passed, spacing_reason = _hole_spacing_transition_passed(
+            before, after, required_hole_spacing_transition
+        )
+        if not spacing_passed:
+            return False, spacing_reason, "topology_violation"
 
     if before["face_count"] != after["face_count"]:
         return True, "face count changed", "changed"
@@ -581,6 +727,21 @@ def _auto_validate_and_render_strict(*args: Any, **kwargs: Any) -> tuple[str, by
     execution_succeeded = getattr(last_execution, "success", False) is True
     produced = _candidate_names_produced(last_execution)
     if not produced:
+        if (
+            getattr(_validation_state, "is_editing", False) is True
+            and execution_succeeded
+        ):
+            inspection_count = (
+                getattr(_validation_state, "inspection_only_edit_turn_count", 0) + 1
+            )
+            _validation_state.inspection_only_edit_turn_count = inspection_count
+            if inspection_count >= _EDIT_INSPECTION_SOFT_LIMIT:
+                auto_text += (
+                    "\nCADRIG controller: the edit inspection budget is exhausted. "
+                    "The next response must attempt the requested modification and "
+                    "export output.step; another inspection-only program may terminate "
+                    "the attempt.\n"
+                )
         _validation_state.passed = (
             getattr(_validation_state, "ever_passed", False) is True
         )
@@ -605,6 +766,9 @@ def _auto_validate_and_render_strict(*args: Any, **kwargs: Any) -> tuple[str, by
             ),
             required_radius_transition=getattr(
                 _validation_state, "required_blend_radius_transition", None
+            ),
+            required_hole_spacing_transition=getattr(
+                _validation_state, "required_hole_spacing_transition", None
             ),
         )
     evidence_passed = _editing_count_evidence_passed(last_execution, expected)
@@ -677,6 +841,10 @@ def _run_agent_with_mesh_sidecars(
     _validation_state.semantic_invariance_rejection_count = 0
     _validation_state.no_code_provider_response_count = 0
     _validation_state.response_effort_downgrade_count = 0
+    _validation_state.inspection_only_edit_turn_count = 0
+    _validation_state.inspection_budget_stop_count = 0
+    _validation_state.prompt_margin_calibration_count = 0
+    _validation_state.adaptive_prompt_margin_tokens = _PROMPT_TOKEN_MARGIN
     sidecars: list[Path] = []
     has_step_input = False
     for source in input_files or []:
@@ -696,6 +864,9 @@ def _run_agent_with_mesh_sidecars(
         _validation_state.required_blend_radius_transition = (
             _explicit_blend_radius_transition(task_description)
         )
+        _validation_state.required_hole_spacing_transition = (
+            _explicit_hole_spacing_transition(task_description)
+        )
         expected_instances = _explicit_each_target_count(task_description)
         _validation_state.required_edit_instances = expected_instances
         task_description += (
@@ -710,6 +881,7 @@ def _run_agent_with_mesh_sidecars(
         _validation_state.preserve_edit_solid_count = False
         _validation_state.preserve_edit_extents = False
         _validation_state.required_blend_radius_transition = None
+        _validation_state.required_hole_spacing_transition = None
         task_description += _ARTIFACT_SAFETY_GUIDANCE + _GENERATION_COMPLETENESS_GUIDANCE
     if sidecars:
         if work_dir is None:
@@ -748,6 +920,18 @@ def _run_agent_with_mesh_sidecars(
         )
         result._cadrig_response_effort_downgrade_count = getattr(
             _validation_state, "response_effort_downgrade_count", 0
+        )
+        result._cadrig_inspection_only_edit_turn_count = getattr(
+            _validation_state, "inspection_only_edit_turn_count", 0
+        )
+        result._cadrig_inspection_budget_stop_count = getattr(
+            _validation_state, "inspection_budget_stop_count", 0
+        )
+        result._cadrig_prompt_margin_calibration_count = getattr(
+            _validation_state, "prompt_margin_calibration_count", 0
+        )
+        result._cadrig_adaptive_prompt_margin_tokens = getattr(
+            _validation_state, "adaptive_prompt_margin_tokens", _PROMPT_TOKEN_MARGIN
         )
     return result
 
@@ -839,6 +1023,18 @@ def _save_with_trace(self: AgentResult, output_dir: str | Path) -> Path:
         self._cadrig_semantic_invariance_rejection_count = getattr(
             _validation_state, "semantic_invariance_rejection_count", 0
         )
+        self._cadrig_inspection_only_edit_turn_count = getattr(
+            _validation_state, "inspection_only_edit_turn_count", 0
+        )
+        self._cadrig_inspection_budget_stop_count = getattr(
+            _validation_state, "inspection_budget_stop_count", 0
+        )
+        self._cadrig_prompt_margin_calibration_count = getattr(
+            _validation_state, "prompt_margin_calibration_count", 0
+        )
+        self._cadrig_adaptive_prompt_margin_tokens = getattr(
+            _validation_state, "adaptive_prompt_margin_tokens", _PROMPT_TOKEN_MARGIN
+        )
     destination = _strict_agent_result_save(self, output_dir)
     _sanitize_saved_candidates(self, destination)
     turns: list[dict[str, Any]] = []
@@ -889,6 +1085,20 @@ def _save_with_trace(self: AgentResult, output_dir: str | Path) -> Path:
             ),
             "response_effort_downgrades": getattr(
                 self, "_cadrig_response_effort_downgrade_count", 0
+            ),
+            "inspection_only_edit_turns": getattr(
+                self, "_cadrig_inspection_only_edit_turn_count", 0
+            ),
+            "inspection_budget_stops": getattr(
+                self, "_cadrig_inspection_budget_stop_count", 0
+            ),
+            "prompt_margin_calibrations": getattr(
+                self, "_cadrig_prompt_margin_calibration_count", 0
+            ),
+            "adaptive_prompt_margin_tokens": getattr(
+                self,
+                "_cadrig_adaptive_prompt_margin_tokens",
+                _PROMPT_TOKEN_MARGIN,
             ),
             "semantic_edit_contract": (
                 {
@@ -967,8 +1177,26 @@ def _complete_with_cap(
     raw_cap = os.environ.get(_TOKEN_CAP_ENV)
     if raw_cap is None:
         return _strict_llm_complete(self, messages, **kwargs)
+    inspection_count = getattr(
+        _validation_state, "inspection_only_edit_turn_count", 0
+    )
     if (
+        inspection_count >= _EDIT_INSPECTION_HARD_LIMIT
+        and getattr(_validation_state, "ever_passed", False) is not True
+    ):
+        _validation_state.inspection_budget_stop_count = (
+            getattr(_validation_state, "inspection_budget_stop_count", 0) + 1
+        )
+        raise RuntimeError(
+            "editing inspection budget exhausted without a candidate "
+            f"({inspection_count} inspection-only turns)"
+        )
+    force_low_reasoning = (
         getattr(self, "_cadrig_force_low_reasoning", False) is True
+        or inspection_count >= _EDIT_INSPECTION_SOFT_LIMIT
+    )
+    if (
+        force_low_reasoning
         and kwargs.get("reasoning_effort") in {"medium", "high"}
     ):
         kwargs["reasoning_effort"] = "low"
@@ -980,10 +1208,20 @@ def _complete_with_cap(
         consumed = int(getattr(self, "_cadcopilot_consumed_tokens", 0))
         prompt_tokens = self.count_tokens(messages)
         requested = int(kwargs.get("max_tokens", 0))
+        if inspection_count >= _EDIT_INSPECTION_SOFT_LIMIT:
+            requested = min(requested, 4_096)
+        prompt_margin = max(
+            _PROMPT_TOKEN_MARGIN,
+            int(
+                getattr(
+                    self, "_cadrig_adaptive_prompt_margin_tokens", _PROMPT_TOKEN_MARGIN
+                )
+            ),
+        )
         allowance = completion_token_allowance(
             token_cap=token_cap,
             consumed=consumed,
-            prompt_tokens=prompt_tokens + _PROMPT_TOKEN_MARGIN,
+            prompt_tokens=prompt_tokens + prompt_margin,
             requested=requested,
         )
     except (TypeError, ValueError) as exc:
@@ -1008,6 +1246,17 @@ def _complete_with_cap(
         )
     kwargs["max_tokens"] = allowance
     completion = _strict_llm_complete(self, messages, **kwargs)
+    observed_prompt_tokens = _usage_value(completion, "prompt_tokens")
+    calibrated_margin = max(
+        prompt_margin,
+        observed_prompt_tokens - prompt_tokens + _PROMPT_CALIBRATION_BUFFER,
+    )
+    if calibrated_margin > prompt_margin:
+        self._cadrig_adaptive_prompt_margin_tokens = calibrated_margin
+        _validation_state.adaptive_prompt_margin_tokens = calibrated_margin
+        _validation_state.prompt_margin_calibration_count = (
+            getattr(_validation_state, "prompt_margin_calibration_count", 0) + 1
+        )
     new_total = consumed + completion.total_tokens
     self._cadcopilot_consumed_tokens = new_total
     _record_provider_usage(completion, accepted=new_total <= token_cap)
