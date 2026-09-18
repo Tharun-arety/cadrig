@@ -30,7 +30,8 @@ CAD kernels without changing the agent-control or evaluation layers.
 The alpha implementation and evaluation framing are described in
 [the report](docs/REPORT.md), and the native state machine is specified in
 [the architecture guide](docs/NATIVE_AGENT_ARCHITECTURE.md). The Python package
-and CLI are both named `cadrig`.
+and CLI are both named `cadrig`. The versioned training-data boundary is
+described in [the episode data guide](docs/DATASET_GUIDE.md).
 
 ## Design rules
 
@@ -64,6 +65,7 @@ Version `0.2.0a1` includes:
 - bounded, verifier-feedback-driven plan repair;
 - automatic rollback when post-commit verification fails;
 - replay-oriented traces containing contracts, plans, receipts and verification reports;
+- immutable, hashed CADRIG Episodes with provenance and train/evaluation separation;
 - a thin FreeCAD workbench that exposes contract, action graph, verification and receipt;
 - bring-your-own-model planning through OpenAI-compatible endpoints;
 - FreeCAD `.FCMacro` generation with safe and review-only policies;
@@ -108,6 +110,10 @@ Add `--apply` to commit. Use `--response-format json_object` or
 The command performs separate contract-compilation and action-planning calls.
 The model never receives native kernel access: its proposal must pass the closed
 action contract, backend preflight and independent design-contract verification.
+Each run is recorded under `results/episodes/` by default, but remains ineligible
+for training until explicitly curated. Use `--no-record-episode` for a private
+one-off run or see [the episode data guide](docs/DATASET_GUIDE.md) for provenance
+and split controls.
 
 The bundled `memory` adapter proves the flow. Install a third-party adapter via
 the `cadrig.adapters` entry-point group to bring your own CAD backend. See

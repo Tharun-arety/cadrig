@@ -17,6 +17,7 @@ except ImportError:
 from cadrig.action_graph import ActionGraphPlanner
 from cadrig.adapters.freecad import FreeCADKernelAdapter
 from cadrig.contract_compiler import ContractCompiler
+from cadrig.episodes import EpisodeContext, EpisodeStore
 from cadrig.executor import ExecutionEngine
 from cadrig.models import OpenAICompatibleClient
 from cadrig.native_agent import NativeCADAgent
@@ -144,6 +145,7 @@ class CADRIGPanel(QtWidgets.QWidget):
         self._set_busy(True)
         self.status.setText("Compiling design contract…")
         QtWidgets.QApplication.processEvents()
+        native_agent = None
         try:
             model = OpenAICompatibleClient(
                 base_url=base_url,
@@ -154,12 +156,23 @@ class CADRIGPanel(QtWidgets.QWidget):
             )
             registry = AdapterRegistry()
             registry.register(FreeCADKernelAdapter(app=App, gui=Gui))
-            result = NativeCADAgent(
+            native_agent = NativeCADAgent(
                 executor=ExecutionEngine(registry),
                 compiler=ContractCompiler(model),
                 planner=ActionGraphPlanner(model),
                 max_repairs=self.max_repairs.value(),
-            ).run(
+                episode_store=EpisodeStore(),
+                episode_context=EpisodeContext(
+                    task_source="freecad_interactive",
+                    model={
+                        "provider": "openai_compatible",
+                        "model": model_name,
+                        "response_format": self.response_format.currentText(),
+                    },
+                    environment={"freecad": str(App.Version())},
+                ),
+            )
+            result = native_agent.run(
                 intent=intent,
                 adapter_id="freecad",
                 document_id=document_id,
@@ -168,7 +181,16 @@ class CADRIGPanel(QtWidgets.QWidget):
         except Exception:  # noqa: BLE001 - surface the native boundary failure.
             self.trace_view.setPlainText(traceback.format_exc())
             self.tabs.setCurrentWidget(self.trace_view)
-            self.status.setText("CADRIG refused the run before geometry was accepted.")
+            episode_status = (
+                f" Evidence: {native_agent.last_episode.path}"
+                if native_agent is not None and native_agent.last_episode
+                else f" Recording warning: {native_agent.last_episode_error}"
+                if native_agent is not None and native_agent.last_episode_error
+                else ""
+            )
+            self.status.setText(
+                f"CADRIG refused the run before geometry was accepted.{episode_status}"
+            )
             self._set_busy(False)
             return
 
@@ -183,9 +205,16 @@ class CADRIGPanel(QtWidgets.QWidget):
         self.tabs.setCurrentWidget(
             self.verification_view if result.verification else self.trace_view
         )
+        episode_status = (
+            f" Episode: {result.episode.path}"
+            if result.episode
+            else f" Episode recording warning: {result.episode_error}"
+            if result.episode_error
+            else ""
+        )
         self.status.setText(
             f"{result.status.value.upper()} — {result.attempts} planning attempt(s); "
-            "acceptance decided by the contract verifier."
+            f"acceptance decided by the contract verifier.{episode_status}"
         )
         if result.accepted and apply:
             try:

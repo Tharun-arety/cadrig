@@ -58,6 +58,16 @@ must report unsupported tasks truthfully.
 - [ ] Execute the 12 planned production batches with repair gates, compose all
   81 strict-valid candidates, and obtain the first official score.
 
+## R0.9 — Training-data foundation
+
+- [x] Versioned CADRIG Episode manifest and public JSON Schema.
+- [x] Atomic per-run storage with SHA-256 artifact inventories.
+- [x] Automatic native CLI and FreeCAD-workbench recording.
+- [x] Credential redaction and explicit training-eligibility policy.
+- [x] Hard separation of held-out evaluation episodes from training data.
+- [ ] Capture native CAD documents, STEP exports and standardized multi-view renders.
+- [ ] Add curation, deduplication and object-storage synchronization tooling.
+
 ## R1 — Useful FreeCAD copilot
 
 - [x] Attach to an open FreeCAD document and observe selection and feature tree.

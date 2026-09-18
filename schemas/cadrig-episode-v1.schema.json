@@ -1,0 +1,60 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/Tharun-arety/cadrig/schemas/cadrig-episode-v1.schema.json",
+  "title": "CADRIG Episode Manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "episode_id",
+    "created_at",
+    "task",
+    "data_policy",
+    "system",
+    "run",
+    "labels",
+    "metrics",
+    "files"
+  ],
+  "properties": {
+    "schema_version": { "const": "1.0.0" },
+    "episode_id": { "type": "string", "minLength": 1 },
+    "created_at": { "type": "string", "format": "date-time" },
+    "task": {
+      "type": "object",
+      "required": ["task_id", "instruction", "source", "dataset_revision", "license"],
+      "properties": {
+        "task_id": { "type": "string", "minLength": 1 },
+        "instruction": { "type": "string" },
+        "source": { "type": "string", "minLength": 1 },
+        "dataset_revision": { "type": ["string", "null"] },
+        "license": { "type": ["string", "null"] }
+      }
+    },
+    "data_policy": {
+      "type": "object",
+      "required": ["split", "training_eligible", "evaluation_only"],
+      "properties": {
+        "split": { "enum": ["training", "regression", "evaluation"] },
+        "training_eligible": { "type": "boolean" },
+        "evaluation_only": { "type": "boolean" }
+      }
+    },
+    "system": { "type": "object" },
+    "run": { "type": "object" },
+    "labels": { "type": "object" },
+    "metrics": { "type": "object" },
+    "files": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["path", "bytes", "sha256"],
+        "properties": {
+          "path": { "type": "string" },
+          "bytes": { "type": "integer", "minimum": 0 },
+          "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+        }
+      }
+    }
+  }
+}

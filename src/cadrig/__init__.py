@@ -21,6 +21,15 @@ from .design_contracts import (
     DesignPredicate,
     PredicateKind,
 )
+from .episodes import (
+    EPISODE_SCHEMA_VERSION,
+    EpisodeContext,
+    EpisodeRecord,
+    EpisodeSplit,
+    EpisodeStore,
+    EpisodeStoreError,
+    default_episode_root,
+)
 from .executor import ExecutionEngine
 from .macros import (
     FreeCADMacroExecutor,
@@ -40,6 +49,7 @@ from .verification import ContractVerifier, VerificationIssue, VerificationRepor
 __all__ = [
     "ACTION_PLAN_SCHEMA_VERSION",
     "DESIGN_CONTRACT_SCHEMA_VERSION",
+    "EPISODE_SCHEMA_VERSION",
     "Action",
     "ActionGraphContext",
     "ActionGraphPlanner",
@@ -60,6 +70,11 @@ __all__ = [
     "DesignPredicate",
     "Diagnostic",
     "DocumentSnapshot",
+    "EpisodeContext",
+    "EpisodeRecord",
+    "EpisodeSplit",
+    "EpisodeStore",
+    "EpisodeStoreError",
     "ExecutionEngine",
     "ExecutionReceipt",
     "ExecutionStatus",
@@ -80,6 +95,7 @@ __all__ = [
     "TraceEvent",
     "VerificationIssue",
     "VerificationReport",
+    "default_episode_root",
 ]
 
 __version__ = "0.2.0a1"

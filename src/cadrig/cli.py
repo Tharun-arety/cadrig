@@ -13,6 +13,7 @@ from cadrig.adapters.freecad import FreeCADKernelAdapter, FreeCADUnavailableErro
 from cadrig.adapters.memory import MemoryKernelAdapter
 from cadrig.contract_compiler import ContractCompiler
 from cadrig.contracts import ActionPlan, ContractError
+from cadrig.episodes import EpisodeContext, EpisodeSplit, EpisodeStore
 from cadrig.executor import ExecutionEngine
 from cadrig.macros import FreeCADMacroGenerator, MacroGenerationError
 from cadrig.models import OpenAICompatibleClient
@@ -59,6 +60,30 @@ def build_parser() -> argparse.ArgumentParser:
         "--apply",
         action="store_true",
         help="commit the plan; without this flag the adapter performs a dry run",
+    )
+    ask_parser.add_argument(
+        "--episode-root",
+        type=Path,
+        help="episode store root (default: CADRIG_EPISODE_ROOT or results/episodes)",
+    )
+    ask_parser.add_argument(
+        "--episode-split",
+        choices=tuple(item.value for item in EpisodeSplit),
+        default=EpisodeSplit.TRAINING.value,
+    )
+    ask_parser.add_argument("--task-id")
+    ask_parser.add_argument("--task-source", default="interactive_cli")
+    ask_parser.add_argument("--dataset-revision")
+    ask_parser.add_argument("--task-license")
+    ask_parser.add_argument(
+        "--training-eligible",
+        action="store_true",
+        help="explicitly approve provenance for training; false by default",
+    )
+    ask_parser.add_argument(
+        "--no-record-episode",
+        action="store_true",
+        help="disable local episode recording for this run",
     )
     macro_parser = subparsers.add_parser(
         "macro", help="generate a reviewed FreeCAD .FCMacro with your model"
@@ -564,6 +589,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 )
             )
             return 2
+        native_agent = None
         try:
             model = OpenAICompatibleClient(
                 base_url=base_url,
@@ -572,18 +598,48 @@ def main(argv: Sequence[str] | None = None) -> int:
                 timeout_seconds=args.timeout,
                 response_format=args.response_format,
             )
-            result = NativeCADAgent(
+            native_agent = NativeCADAgent(
                 executor=executor,
                 compiler=ContractCompiler(model),
                 planner=ActionGraphPlanner(model),
-            ).run(
+                episode_store=None if args.no_record_episode else EpisodeStore(args.episode_root),
+                episode_context=EpisodeContext(
+                    split=EpisodeSplit(args.episode_split),
+                    task_id=args.task_id,
+                    task_source=args.task_source,
+                    dataset_revision=args.dataset_revision,
+                    task_license=args.task_license,
+                    training_eligible=args.training_eligible,
+                    model={
+                        "provider": "openai_compatible",
+                        "model": model_name,
+                        "response_format": args.response_format,
+                    },
+                ),
+            )
+            result = native_agent.run(
                 intent=args.intent,
                 adapter_id=args.adapter,
                 document_id=args.document,
                 apply=args.apply,
             )
         except (KeyError, ValueError, NativeAgentError) as exc:
-            print(json.dumps({"error": str(exc)}, indent=2))
+            print(
+                json.dumps(
+                    {
+                        "error": str(exc),
+                        "episode": (
+                            native_agent.last_episode.to_dict()
+                            if native_agent is not None and native_agent.last_episode
+                            else None
+                        ),
+                        "episode_error": (
+                            native_agent.last_episode_error if native_agent is not None else None
+                        ),
+                    },
+                    indent=2,
+                )
+            )
             return 2
         print(json.dumps(result.to_dict(), indent=2))
         return 0 if result.accepted else 1
