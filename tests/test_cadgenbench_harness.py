@@ -72,7 +72,7 @@ def test_done_signal_requires_review_after_candidate_changing_code() -> None:
 
 
 def test_validation_feedback_requires_valid_watertight_render(
-    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     valid = """### Auto-validation of output.step
 Valid:      True
@@ -100,13 +100,117 @@ Solids:     1
         lambda *_args, **_kwargs: (valid, b"png"),
     )
     official_cli._auto_validate_and_render_strict(
-        Path("."), SimpleNamespace(success=False)
+        tmp_path,
+        SimpleNamespace(
+            success=False,
+            files_produced={"output.step": 1},
+            code="failed",
+            stdout="",
+        ),
     )
     assert official_cli._validation_state.passed is False
+    (tmp_path / "output.step").write_bytes(b"step")
     official_cli._auto_validate_and_render_strict(
-        Path("."), SimpleNamespace(success=True)
+        tmp_path,
+        SimpleNamespace(
+            success=True,
+            files_produced={"output.step": 4},
+            code="success",
+            stdout="",
+        ),
     )
     assert official_cli._validation_state.passed is True
+
+
+def test_explicit_each_target_count_and_execution_evidence() -> None:
+    task = (
+        "For each of the four non-circular pockets, bring their walls inward "
+        "by 6mm."
+    )
+    assert official_cli._explicit_each_target_count(task) == 4
+    assert official_cli._explicit_each_target_count("Shorten the smaller bore.") is None
+    instance_evidence = """CADRIG_EDIT_INSTANCE index=1 center=(1,2,3)
+CADRIG_EDIT_INSTANCE index=2 center=(4,5,6)
+CADRIG_EDIT_INSTANCE index=3 center=(7,8,9)
+CADRIG_EDIT_INSTANCE index=4 center=(10,11,12)
+"""
+    assert (
+        official_cli._editing_count_evidence_passed(
+            SimpleNamespace(
+                stdout=(
+                    instance_evidence
+                    + "CADRIG_EDIT_COUNTS expected=4 matched=4 modified=4\n"
+                )
+            ),
+            4,
+        )
+        is True
+    )
+    assert (
+        official_cli._editing_count_evidence_passed(
+            SimpleNamespace(
+                stdout="CADRIG_EDIT_COUNTS expected=4 matched=3 modified=3\n"
+            ),
+            4,
+        )
+        is False
+    )
+
+
+def test_explicit_edit_count_is_part_of_strict_candidate_acceptance(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    feedback = "Valid:      True\nWatertight: True\n"
+    monkeypatch.setattr(
+        official_cli,
+        "_strict_auto_validate_and_render",
+        lambda *_args, **_kwargs: (feedback, b"png"),
+    )
+    monkeypatch.setattr(
+        official_cli._validation_state, "required_edit_instances", 4, raising=False
+    )
+    monkeypatch.setattr(
+        official_cli._validation_state,
+        "accepted_candidate_code_hashes",
+        set(),
+        raising=False,
+    )
+    incomplete = SimpleNamespace(
+        success=True,
+        code="modify_three()",
+        stdout="CADRIG_EDIT_COUNTS expected=4 matched=3 modified=3\n",
+        files_produced={"output.step": 3},
+    )
+    (tmp_path / ".cadrig_last_accepted_output.step").write_bytes(b"accepted")
+    (tmp_path / "output.step").write_bytes(b"bad")
+    feedback_text, _ = official_cli._auto_validate_and_render_strict(
+        tmp_path, incomplete
+    )
+    assert official_cli._validation_state.passed is False
+    assert (tmp_path / "output.step").read_bytes() == b"accepted"
+    assert "Semantic edit acceptance: REJECTED" in feedback_text
+
+    complete = SimpleNamespace(
+        success=True,
+        code="modify_four()",
+        stdout="""CADRIG_EDIT_INSTANCE index=1 center=(1,2,3)
+CADRIG_EDIT_INSTANCE index=2 center=(4,5,6)
+CADRIG_EDIT_INSTANCE index=3 center=(7,8,9)
+CADRIG_EDIT_INSTANCE index=4 center=(10,11,12)
+CADRIG_EDIT_COUNTS expected=4 matched=4 modified=4
+""",
+        files_produced={"output.step": 4},
+    )
+    (tmp_path / "output.step").write_bytes(b"good")
+    feedback_text, _ = official_cli._auto_validate_and_render_strict(
+        tmp_path, complete
+    )
+    assert official_cli._validation_state.passed is True
+    assert (tmp_path / ".cadrig_last_accepted_output.step").read_bytes() == b"good"
+    assert "Semantic edit acceptance: PASS" in feedback_text
+    assert official_cli._sha256_text("modify_four()") in (
+        official_cli._validation_state.accepted_candidate_code_hashes
+    )
 
 
 def test_terminal_mesh_edit_contract_rejects_unsafe_parameters() -> None:
@@ -345,6 +449,31 @@ def test_generation_wrapper_requires_semantic_completeness(
     assert "Treat the requested edit as local" not in description
 
 
+def test_editing_wrapper_enforces_explicit_target_cardinality(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source = tmp_path / "input.step"
+    source.write_bytes(b"step")
+    captured: dict[str, str] = {}
+
+    def run_agent(description: str, *args: object, **kwargs: object) -> object:
+        captured["description"] = description
+        return object()
+
+    monkeypatch.setattr(official_cli, "_strict_run_agent", run_agent)
+    official_cli._run_agent_with_mesh_sidecars(
+        "For each of the four pockets, bring their walls inward by 6mm.",
+        input_files=[source],
+        work_dir=tmp_path / "work",
+    )
+
+    description = captured["description"]
+    assert "explicitly targets 4 distinct feature instances" in description
+    assert "CADRIG_EDIT_INSTANCE index=<1..4>" in description
+    assert "CADRIG_EDIT_COUNTS expected=4" in description
+    assert "Inspection code must not write or re-export" in description
+
+
 def test_failed_candidate_is_quarantined_and_cannot_replace_success(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -450,6 +579,58 @@ def test_failed_only_candidate_is_not_published(
 
     assert not (destination / "output.step").exists()
     assert (destination / "turn_0" / "rejected_failed_output.step").is_file()
+
+
+def test_semantically_unaccepted_edit_candidate_is_not_published(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    execution = SimpleNamespace(
+        success=True,
+        files_produced={"output.step": 4},
+        code="modify_three()",
+        duration_s=1.0,
+        stdout="CADRIG_EDIT_COUNTS expected=4 matched=3 modified=3\n",
+        stderr="",
+    )
+    turn = SimpleNamespace(
+        turn=0,
+        code_executions=[execution],
+        prompt_tokens=1,
+        completion_tokens=1,
+        reasoning_tokens=None,
+        duration_s=1.0,
+        assistant_message="incomplete edit",
+    )
+    result = SimpleNamespace(
+        turns=[turn],
+        total_tokens=2,
+        total_duration_s=1.0,
+        completed=False,
+        stopped_reason="max_iterations",
+        _cadrig_enforce_accepted_candidates=True,
+        _cadrig_accepted_candidate_code_hashes=frozenset(),
+        _cadrig_required_edit_instances=4,
+    )
+
+    def save(_result: object, output_dir: str | Path) -> Path:
+        destination = Path(output_dir)
+        (destination / "turn_0").mkdir(parents=True)
+        (destination / "turn_0" / "output.step").write_bytes(b"incomplete")
+        (destination / "output.step").write_bytes(b"incomplete")
+        return destination
+
+    monkeypatch.setattr(official_cli, "_strict_agent_result_save", save)
+    destination = official_cli._save_with_trace(result, tmp_path / "saved")
+
+    assert not (destination / "output.step").exists()
+    assert (
+        destination / "turn_0" / "rejected_unvalidated_output.step"
+    ).read_bytes() == b"incomplete"
+    trace = json.loads((destination / "trace.json").read_text(encoding="utf-8"))
+    assert trace["semantic_edit_contract"] == {
+        "required_instances": 4,
+        "accepted_candidate_count": 0,
+    }
 
 
 def test_last_candidate_producer_in_a_turn_controls_publication(

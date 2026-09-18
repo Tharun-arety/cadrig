@@ -303,6 +303,23 @@ provider-reported overrun is recorded as rejected and converted to the same
 candidate-preserving terminal response only when earlier strict validity exists;
 otherwise it remains a hard failure.
 
+The fourth improvement cohort targeted generation fixtures 148 and 134 plus
+editing fixture 201. The three initial artifacts passed structural verification
+after 321,268 tokens and $1.647716. Fixtures 148 and 134 produced 174-face and
+38-face candidates; fixture 148 also behaviorally confirmed the prompt-margin
+guard by preserving its last strict-valid candidate and stopping with a
+zero-token terminal turn at 117,040 tokens. Semantic audit rejected fixture 201
+despite its watertight 447-face STEP: the producing script modified three broad
+faces even though the instruction names four distinct pockets. A follow-up run
+then tried to manufacture the required count by switching from the stated wall
+orientation to four Z-normal faces and later overwrote the working candidate
+with an empty shape. CADRIG now treats explicit “each of the N” cardinality as
+a semantic acceptance contract, requires unique per-instance topology evidence,
+forbids inspection-only STEP exports, and restores the last accepted working
+candidate immediately after a rejected turn. Fixture 201 remains excluded from
+the replacement set until a repair satisfies the instruction; structural
+validity alone is no longer reported as success for this case.
+
 These results demonstrate pipeline viability, not statistical benchmark quality
 or state-of-the-art performance.
 
